@@ -37,6 +37,14 @@
       </a>
       <nav class="nav-links" aria-label="Primary">
         <span id="status-pill" class="status"><span class="status-dot"></span><span id="status-text">Connecting to the API</span></span>
+        <a id="calendar-link" href="http://127.0.0.1:8010/?app" title="Open Ember Almanac, the 23-year fire calendar">Fire calendar</a>
+        <script>
+          /* Sibling app: Ember Almanac runs on port 8010 of the same host (override with ?calendar=URL). */
+          (function () {
+            var q = new URLSearchParams(location.search).get("calendar");
+            document.getElementById("calendar-link").href = q || location.protocol + "//" + location.hostname + ":8010/?app";
+          })();
+        </script>
         <a href="/docs" target="_blank" rel="noopener">Open the API reference</a>
         <div class="menu" id="theme-menu">
           <button id="theme-button" class="nav-btn" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="theme-popover">Appearance</button>
