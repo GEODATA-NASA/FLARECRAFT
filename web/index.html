@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ember Almanac · Team FLARECRAFT</title>
+  <meta name="description" content="The story of our planet's fires: 23 years of history, the fires burning right now, which could turn severe, and the industry satellites see too.">
+  <meta name="theme-color" content="#f5f5f7">
+  <script>
+    try { const t = localStorage.getItem("ember-theme"); if (t && t !== "auto") document.documentElement.dataset.theme = t; } catch (e) {}
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;1,9..144,400&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path d='M16 2c2 6 9 9 9 17a9 9 0 0 1-18 0c0-5 3-7 5-11 1 3 2 4 3 4-1-4-1-7 1-10z' fill='%23e8590c'/></svg>">
+</head>
+<body>
+
+<!-- ============================== STORY ============================== -->
+<section id="story" aria-label="The story of our planet's fires" hidden>
+  <canvas id="globe"></canvas>
+  <svg id="story-figure" aria-hidden="true"></svg>
+  <div class="story-copy" id="story-copy" aria-live="polite"></div>
+  <div class="story-ticker" id="story-ticker"></div>
+  <button class="story-skip" id="story-skip">Skip to the app</button>
+  <div class="dlg story-dlg" id="story-dlg" role="dialog" aria-label="Flick">
+    <div class="dlg-portrait"></div>
+    <div class="dlg-body">
+      <div class="dlg-name">Flick</div>
+      <div class="dlg-text" aria-live="polite"></div>
+    </div>
+    <div class="dlg-controls">
+      <button class="dlg-btn dlg-back" aria-label="Back">&larr;</button>
+      <div class="dots" id="story-dots"></div>
+      <button class="dlg-btn dlg-next" aria-label="Next">&rarr;</button>
+      <button class="dlg-btn dlg-sound"></button>
+    </div>
+    <span class="dlg-caret" aria-hidden="true">&#9660;</span>
+  </div>
+</section>
+
+<!-- =============================== APP =============================== -->
+<div id="app" hidden>
+  <header class="nav">
+    <div class="nav-inner">
+      <a class="brand" href="?app" aria-label="Ember Almanac home">
+        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 2c2 6 9 9 9 17a9 9 0 0 1-18 0c0-5 3-7 5-11 1 3 2 4 3 4-1-4-1-7 1-10z"/></svg>
+        Ember Almanac
+      </a>
+      <nav class="tabs" role="tablist" aria-label="Chapters">
+        <button role="tab" data-tab="history" class="on">History</button>
+        <button role="tab" data-tab="now">Right now</button>
+        <button role="tab" data-tab="severity">Severity</button>
+        <button role="tab" data-tab="industry">Industry</button>
+      </nav>
+      <div class="nav-actions">
+        <button class="nav-btn" id="replay">Story</button>
+        <button class="nav-btn icon" id="theme" aria-label="Switch light or dark appearance" title="Appearance">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9z"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="page">
+    <!-- ------------------------------------------------ chapter 1: history -->
+    <section class="tab" data-tab="history">
+      <div class="hero">
+        <p class="chapter">Chapter 1 · The past</p>
+        <h1>When does <span id="place-name">the world</span> burn?</h1>
+        <p class="lede">Satellites have watched every fire on Earth since 2003. Pick a place, and see its fires week by week, year by year.</p>
+        <div class="search">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+          <input id="search" list="country-list" placeholder="Type a country, like Egypt or Brazil" autocomplete="off" aria-label="Search a country">
+          <datalist id="country-list"></datalist>
+        </div>
+        <div class="chips" id="presets" aria-label="Places to try"></div>
+      </div>
+      <div class="glance" id="glance" aria-label="At a glance"></div>
+      <section class="card" id="calendar-card">
+        <div class="card-head">
+          <div><h2>Every week since 2003</h2><p class="sub" id="cal-sub">Each row is a year. Each square is one week. Darker means more fires.</p></div>
+          <div class="legend" id="cal-legend"></div>
+        </div>
+        <div id="calendar" class="calendar"></div>
+        <p class="sub cal-note">Circled squares were unusually busy weeks. <span class="stripe-sample"></span> Striped years were rebuilt from the older MODIS satellite.</p>
+      </section>
+      <div class="two">
+        <section class="card" id="history-map-card">
+          <div class="card-head"><div><h2>Where it burned</h2><p class="sub" id="map-caption">Tap a week in the calendar.</p></div>
+            <button class="pill" id="draw">Draw an area</button></div>
+          <div class="map" id="map"></div>
+          <p class="sub map-key"><span class="dot fire"></span>Fires <span class="dot flare"></span>Gas flares and factories (not counted)</p>
+        </section>
+        <section class="card" id="season-card">
+          <div class="card-head"><div><h2>A typical year here</h2><p class="sub">Grey is a normal year. Orange is the year you pick.</p></div>
+            <select id="year-pick" aria-label="Pick a year"></select></div>
+          <div id="season" class="chart"></div>
+        </section>
+      </div>
+      <details class="card expert" id="expert">
+        <summary><div><h2>For scientists and fire managers</h2><p class="sub">The method, the evidence, and the data download.</p></div><span class="chev" aria-hidden="true"></span></summary>
+        <div class="expert-body">
+          <div class="two">
+            <div>
+              <h3>Fixing the 2012 jump</h3>
+              <p class="sub">Bars: the raw MODIS (grey) and VIIRS (orange) records joined end to end. Line: the harmonized record with its 80% band.</p>
+              <div class="toggle" id="annual-toggle"></div>
+              <div id="annual" class="chart"></div>
+              <p class="note" id="annual-note"></p>
+            </div>
+            <div><h3>Tested on years it never saw</h3><div id="validation"></div></div>
+          </div>
+          <div class="method">
+            <h3>How it works</h3>
+            <p>NASA FIRMS active-fire records from MODIS (1&nbsp;km pixels, 2000 onward) and VIIRS (375&nbsp;m pixels, 2012 onward) are counted on a 0.25&deg; grid each week,
+              vegetation fires only. For years when both satellites flew, a gradient-boosting model learns how many VIIRS hotspots match what MODIS saw in each place and week,
+              then rebuilds 2003&ndash;2011 in VIIRS units. Every year was also rebuilt while held out of training and compared with what VIIRS really saw; those errors set the uncertainty bands.</p>
+            <a class="pill" id="export" href="/api/export.csv" download>Download this area as CSV</a>
+            <a class="pill" href="/docs" target="_blank" rel="noopener">API reference</a>
+            <button class="pill" id="print">Print a report</button>
+          </div>
+        </div>
+      </details>
+    </section>
+
+    <!-- ------------------------------------------------ chapter 2: right now -->
+    <section class="tab" data-tab="now" hidden>
+      <div class="hero">
+        <p class="chapter">Chapter 2 · The present</p>
+        <h1>Where is Earth burning <span>right now</span>?</h1>
+        <p class="lede" id="now-lede">Fires spotted by NASA's VIIRS satellites, refreshed every few hours.</p>
+        <div class="toggle big" id="now-window"><button class="on" data-w="24h">Last 24 hours</button><button data-w="7d">Last 7 days</button></div>
+      </div>
+      <div class="glance" id="now-glance"></div>
+      <section class="card" id="now-map-card">
+        <div class="card-head"><div><h2>Today's fire map</h2><p class="sub">Bigger, brighter dots are stronger fires. Tap one to see it up close.</p></div></div>
+        <div class="map tall" id="now-map"></div>
+        <p class="sub map-key"><span class="dot fire"></span>Fires <span class="dot flare"></span>Gas flares and factories, recognised from 23 years of history</p>
+      </section>
+      <div class="two">
+        <section class="card" id="now-biggest-card"><div class="card-head"><div><h2>Strongest fires</h2><p class="sub">Measured by the heat they give off (megawatts).</p></div></div>
+          <div class="rows" id="now-biggest"></div></section>
+        <section class="card" id="now-countries-card"><div class="card-head"><div><h2>Where it's burning most</h2><p class="sub">Fire hotspots by country.</p></div></div>
+          <div class="bars" id="now-countries"></div></section>
+      </div>
+    </section>
+
+    <!-- ------------------------------------------------ chapter 3: severity -->
+    <section class="tab" data-tab="severity" hidden>
+      <div class="hero">
+        <p class="chapter">Chapter 3 · The future</p>
+        <h1>Which fires could turn <span>severe</span>?</h1>
+        <p class="lede">Our GeoData AI model reads each fire's heat, place, season and weather, and estimates the chance it is a severe fire (10 megawatts or more).</p>
+      </div>
+      <div class="glance" id="sev-glance"></div>
+      <section class="card" id="sev-map-card">
+        <div class="card-head"><div><h2>Today's fires, scored</h2><p class="sub" id="sev-sub">Each dot is a fire burning now, coloured by the model's guess.</p></div>
+          <div class="legend sev-legend"><span class="dot mild"></span>Mild <span class="dot mid"></span>Maybe <span class="dot hot"></span>Likely severe</div></div>
+        <div class="map tall" id="sev-map"></div>
+      </section>
+      <div class="two">
+        <section class="card" id="sev-trust-card"><div class="card-head"><div><h2>Can we trust it?</h2><p class="sub">We compared the model's guesses with the fire power the satellites actually measured.</p></div></div>
+          <div id="sev-calib" class="chart short"></div><p class="note" id="sev-calib-note"></p></section>
+        <section class="card" id="sev-watch-card"><div class="card-head"><div><h2>Watch list</h2><p class="sub">Fires the model is most worried about right now.</p></div></div>
+          <div class="rows" id="sev-watch"></div></section>
+      </div>
+      <section class="card" id="outlook-card">
+        <div class="card-head"><div><h2>The next four weeks</h2><p class="sub" id="out-sub">Where fires usually burn now (from the calendar) &times; how fierce they tend to be (from the model).</p></div></div>
+        <div class="two flat">
+          <div class="map" id="out-map"></div>
+          <div><div class="bars" id="out-countries"></div><p class="note">A planning guide based on 23 years of history and the severity model, not a forecast of individual fires.</p></div>
+        </div>
+      </section>
+      <section class="card link-card">
+        <div><h2>Want every detail?</h2><p class="sub">The full GeoData AI map has filters, satellites, weather and single-fire predictions.</p></div>
+        <button class="pill strong" id="to-geodata">Open the GeoData AI map &rarr;</button>
+      </section>
+    </section>
+
+    <!-- ------------------------------------------------ chapter 4: industry -->
+    <section class="tab" data-tab="industry" hidden>
+      <div class="hero">
+        <p class="chapter">Chapter 4 · Beyond fire</p>
+        <h1>Not every hotspot is a <span>wildfire</span>.</h1>
+        <p class="lede">Gas flares, refineries and steel plants glow all year long. Satellites see them too. We keep them out of the fire counts, and map them here.</p>
+      </div>
+      <div class="glance" id="ind-glance"></div>
+      <section class="card" id="ind-map-card">
+        <div class="card-head"><div><h2>Industrial heat around the world</h2><p class="sub" id="ind-sub">Each dot is a site that glowed again and again.</p></div></div>
+        <div class="map tall" id="ind-map"></div>
+      </section>
+      <div class="two">
+        <section class="card" id="ind-rank-card"><div class="card-head"><div><h2>Where it glows most</h2><p class="sub">Industrial hotspots by country. Tap one to see its trend.</p></div></div>
+          <div class="bars clickable" id="ind-ranking"></div></section>
+        <section class="card" id="ind-trend-card"><div class="card-head"><div><h2 id="ind-trend-title">Over the years</h2><p class="sub">Counts of hot pixels, not volumes of gas.</p></div></div>
+          <div id="ind-trend" class="chart short"></div></section>
+      </div>
+    </section>
+
+    <footer class="foot">
+      <div class="foot-flick" id="foot-flick"></div>
+      <div>
+        <p class="foot-team">Made by <strong>Team FLARECRAFT</strong> · George Essam, Mathew Emad, Sondos Alsayed · Assiut, Egypt</p>
+        <p class="sub">NASA Space Apps Challenge 2026 · Data: NASA FIRMS (MODIS, VIIRS) and NASA POWER · Science and fun aren't opposites.</p>
+      </div>
+    </footer>
+  </main>
+
+  <div class="dlg app-dlg" id="app-dlg" role="dialog" aria-label="Flick's tour" hidden>
+    <div class="dlg-portrait"></div>
+    <div class="dlg-body">
+      <div class="dlg-name">Flick <span class="dlg-step" id="dlg-step"></span></div>
+      <div class="dlg-text" aria-live="polite"></div>
+    </div>
+    <div class="dlg-controls">
+      <button class="dlg-btn dlg-back" aria-label="Back">&larr;</button>
+      <button class="dlg-btn dlg-next" aria-label="Next">&rarr;</button>
+      <button class="dlg-btn dlg-sound"></button>
+      <button class="dlg-btn dlg-close" id="dlg-close" aria-label="End the tour">&times;</button>
+    </div>
+    <span class="dlg-caret" aria-hidden="true">&#9660;</span>
+  </div>
+  <button class="flick-fab" id="flick-fab" aria-label="Ask Flick for a tour"><span id="fab-face"></span>Guide me</button>
+  <div class="tooltip" id="tooltip" role="tooltip"></div>
+  <div class="toast" id="toast" role="status"></div>
+  <div class="busy" id="busy"><span></span></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.2/anime.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="flick.js"></script>
+<script src="intro.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
