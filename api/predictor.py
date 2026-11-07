@@ -3,7 +3,7 @@
 Feature construction follows ``modeling/train_model.py``: fire attributes from
 FIRMS, ``day_of_year`` from the acquisition date, and same-day nearest weather
 (humidity, precipitation, soil moisture) within the configured radius. Missing
-values are handled by the median imputer inside the saved pipeline.
+numeric weather values are handled natively by the saved CatBoost model.
 """
 
 import logging
@@ -94,7 +94,11 @@ class SeverityPredictor:
         if self.loaded:
             final = self.model.steps[-1][1] if hasattr(self.model, "steps") else self.model
             estimator = type(final).__name__
-            n_estimators = getattr(final, "n_estimators", None)
+            n_estimators = (
+                getattr(final, "tree_count_", None)
+                or getattr(final, "n_estimators", None)
+                or getattr(final, "iterations", None)
+            )
         return {
             "loaded": self.loaded,
             "model_path": str(self.model_path),

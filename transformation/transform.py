@@ -16,11 +16,28 @@ FIRE_CHUNK_SIZE = 100_000
 
 FLAG_FILE_PATH = Path(CLEANED_DATA_DIR) / ".fire_validated.flag"
 
+# تعريف المخطط الموحد (Canonical Schema) لأعمدة الحرائق لضمان الترتيب والثبات
+CANONICAL_FIRE_COLUMNS = [
+    "latitude", "longitude", "bright_ti4", "scan", "track", "acq_date",
+    "acq_time", "satellite", "confidence", "version", "bright_ti5", "frp",
+    "daynight", "type", "satellite_source"
+]
+
+def _ensure_canonical_schema(df):
+    """إعادة ترتيب الأعمدة وضمان وجود المخطط الموحد (Canonical Schema)"""
+    df = df.copy()
+    # التأكد من وجود الأعمدة الأساسية، وإضافة الناقصة منها بقيم فارغة لتفادي انهيار الدمج
+    for col in CANONICAL_FIRE_COLUMNS:
+        if col not in df.columns:
+            df[col] = None
+    # الاحتفاظ بالترتيب الموحد للأعمدة وأي أعمدة إضافية أخرى إن وجدت
+    other_cols = [c for c in df.columns if c not in CANONICAL_FIRE_COLUMNS]
+    return df[CANONICAL_FIRE_COLUMNS + other_cols]
+
 
 def _validate_existing_fire_file(file_path, collect_data):
     """Validate a cleaned fire CSV only if it hasn't been validated before."""
     
-    # Check if the flag file exists and is newer than the cleaned fire data file
     if FLAG_FILE_PATH.is_file() and FLAG_FILE_PATH.stat().st_mtime >= Path(file_path).stat().st_mtime:
         print(f"Skipping quality checks: Cleaned fire data is already validated and unchanged: {file_path}")
         if collect_data:
@@ -49,6 +66,8 @@ def _validate_existing_fire_file(file_path, collect_data):
             ):
                 input_rows += len(chunk)
                 validated = validate_fire_data(chunk, raise_if_empty=False)
+                if not validated.empty:
+                    validated = _ensure_canonical_schema(validated)
                 valid_rows += len(validated)
                 if collect_data and not validated.empty:
                     cleaned_frames.append(validated)
@@ -76,7 +95,6 @@ def _validate_existing_fire_file(file_path, collect_data):
             os.remove(temp_path)
         raise
 
-    # Create the flag file to indicate that the fire data has been validated
     FLAG_FILE_PATH.touch()
 
     print(
@@ -110,6 +128,8 @@ def normalize_fire_dataframe(df, source_name):
         if column in df.columns:
             df[column] = pd.to_numeric(df[column], errors="coerce").astype("Int64")
 
+    # تطبيق المخطط الموحد للأعمدة هنا أيضاً
+    df = _ensure_canonical_schema(df)
     return df
 
 
@@ -123,33 +143,51 @@ def transform_fire_data(collect_data=True):
     print("Processing and cleaning NASA fire data...")
     os.makedirs(CLEANED_DATA_DIR, exist_ok=True)
     cleaned_frames = []
-    output_written = False
+    
+    # تطبيق الحفظ الذري (Atomic Replace) لملف الحرائق عبر ملف مؤقت
+    temp_output_path = output_path + ".tmp"
 
-    for source_name, file_path in FIRE_FILES.items():
-        if not os.path.exists(file_path):
-            print(f"File not found: {file_path}")
-            continue
+    try:
+        with open(temp_output_path, "w", encoding="utf-8", newline="") as temp_file:
+            output_written = False
 
-        for df in pd.read_csv(file_path, chunksize=FIRE_CHUNK_SIZE):
-            df = normalize_fire_dataframe(df, source_name)
-            df = validate_fire_data(df, raise_if_empty=False)
-            if df.empty:
-                continue
+            for source_name, file_path in FIRE_FILES.items():
+                if not os.path.exists(file_path):
+                    print(f"File not found: {file_path}")
+                    continue
 
-            df.to_csv(output_path, mode="w" if not output_written else "a",
-                      header=not output_written, index=False)
-            output_written = True
-            if collect_data:
-                cleaned_frames.append(df)
+                for df in pd.read_csv(file_path, chunksize=FIRE_CHUNK_SIZE, low_memory=False):
+                    df = normalize_fire_dataframe(df, source_name)
+                    df = validate_fire_data(df, raise_if_empty=False)
+                    if df.empty:
+                        continue
 
-        print(f"Data for {source_name} cleaned successfully.")
+                    df.to_csv(
+                        temp_file,
+                        mode="w" if not output_written else "a",
+                        header=not output_written,
+                        index=False
+                    )
+                    output_written = True
+                    if collect_data:
+                        cleaned_frames.append(df)
 
-    if output_written:
-        print(f"Cleaned fire data saved to: {output_path}")
-        # Create the flag file to indicate that the fire data has been validated
-        FLAG_FILE_PATH.touch()
-    else:
-        raise ValueError("No valid fire rows were found in the configured raw files.")
+                print(f"Data for {source_name} cleaned successfully.")
+
+        if output_written:
+            # استبدال ذري للملف النهائي دفعة واحدة بعد التأكد من نجاح الكتابة بالكامل
+            os.replace(temp_output_path, output_path)
+            print(f"Cleaned fire data saved atomically to: {output_path}")
+            FLAG_FILE_PATH.touch()
+        else:
+            if os.path.exists(temp_output_path):
+                os.remove(temp_output_path)
+            raise ValueError("No valid fire rows were found in the configured raw files.")
+
+    except Exception:
+        if os.path.exists(temp_output_path):
+            os.remove(temp_output_path)
+        raise
 
     if cleaned_frames:
         return pd.concat(cleaned_frames, ignore_index=True)
@@ -178,8 +216,6 @@ def transform_weather_data():
 
     weather_df = pd.read_csv(WEATHER_FILE)
 
-    # Clean weather data: drop incomplete rows and turn POWER's -999 fill value
-    # into missing values, then drop rows where every climate value is missing.
     weather_df = weather_df.dropna(subset=[c for c in ("date", "latitude", "longitude") if c in weather_df.columns])
     climate = [c for c in ("RH2M", "PRECTOTCORR", "GWETTOP") if c in weather_df.columns]
     weather_df[climate] = weather_df[climate].mask(weather_df[climate] <= -999)
