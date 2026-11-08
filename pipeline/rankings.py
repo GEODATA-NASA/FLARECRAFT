@@ -13,6 +13,7 @@ country's density. Places under MIN_POPULATION (Antarctica, empty territories) a
 """
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -21,7 +22,8 @@ import pandas as pd
 
 from pipeline.config import CELL_DEG, DATA_DIR, N_COLS, ROOT
 
-FIRES_CSV = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT.parent / "cleaned_data" / "cleaned_master_fires.csv"
+FIRES_CSV = (Path(sys.argv[1]) if len(sys.argv) > 1
+             else Path(os.getenv("CLEANED_DATA_DIR", ROOT.parent / "cleaned_data")) / "cleaned_master_fires.csv")
 PRODUCT = DATA_DIR / "product"
 GEONAMES = DATA_DIR / "ref" / "countryInfo.txt"
 OUT = PRODUCT / "rankings.json"
