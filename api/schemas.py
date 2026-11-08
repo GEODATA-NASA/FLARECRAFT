@@ -134,6 +134,7 @@ class ModelInfo(BaseModel):
     metrics: dict[str, Any] | None = None
     training_extent: dict[str, Any] | None = None
     shap_importance: dict[str, float] | None = None
+    risk_levels: dict[str, Any] | None = Field(None, description="Fire Risk Score cut-offs (0-100) per level and how they were fitted. None for older models.")
 
 
 class HealthResponse(BaseModel):
