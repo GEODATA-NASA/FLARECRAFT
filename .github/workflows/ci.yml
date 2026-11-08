@@ -70,6 +70,12 @@ jobs:
           tests/test_degraded.py
           tests/test_load.py
           tests/test_orchestration.py
+          tests/test_blank_inputs.py
+          tests/test_model_upgrades.py
+          tests/test_risk_score.py
+
+      - name: Check GeoFlare compiles
+        run: python -m compileall -q geoflare
           tests/test_sql_repository.py
           tests/test_weather_download.py
 
