@@ -73,11 +73,11 @@ jobs:
           tests/test_blank_inputs.py
           tests/test_model_upgrades.py
           tests/test_risk_score.py
+          tests/test_sql_repository.py
+          tests/test_weather_download.py
 
       - name: Check GeoFlare compiles
         run: python -m compileall -q geoflare
-          tests/test_sql_repository.py
-          tests/test_weather_download.py
 
   build:
     name: Build Docker image
