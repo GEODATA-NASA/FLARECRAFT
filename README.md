@@ -1,5 +1,7 @@
 # 🌍 GeoData AI: Forest Fires & Climate Intelligence Pipeline
 
+> **GeoFlare**, the NASA Space Apps 2026 app by Team FLARECRAFT, lives in [`geoflare/`](./geoflare). It has three parts: GeoFlare Dashboard, GeoFlare Fires and GeoFlare Air. This GeoData service supplies its severity model, fire archive and assistant. To run both natively or with Docker, and for every API endpoint, see **[GEOFLARE_GUIDE.md](./GEOFLARE_GUIDE.md)**.
+
 An end-to-end wildfire analytics platform built on open NASA data. It ingests satellite fire detections (NASA FIRMS: MODIS and VIIRS) together with daily weather (NASA POWER), cleans and stores them in PostgreSQL/PostGIS, trains a machine-learning model that estimates how **severe** a detected fire is, and serves everything through a FastAPI service, an interactive Leaflet map, and a natural-language "ask the data" assistant powered by Claude.
 
 ```text
