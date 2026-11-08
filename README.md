@@ -353,6 +353,70 @@ The same matching rule is used at serving time by `api/weather_index.py`, which 
 
 The production trainer (`modeling/train_model.py`) fits a CatBoost classifier for the binary high-FRP task (FRP ≥ 10 MW by default). Its evaluation on the chronological hold-out (including ROC-AUC, recall, and the Brier score used to check probability calibration), together with the feature list, training extent, and hyperparameters, is stored inside the artifact and returned by `GET /api/v1/model`. Retraining replaces these values.
 
+#### Missing inputs
+
+A caller does not always know every input. A forecast, for example, knows only the place and the date. CatBoost treats a blank as lower than every real value. A model trained only on complete rows never learns what a blank means, so a request with blank brightness, scan and track was scored about 99% "severe".
+
+The trainer therefore appends copies of training rows with groups of inputs blanked (`BLANK_AUGMENT_SHARE`, default 0.5). The groups are: measurements and weather together (place and time only), measurements only, weather only, and one random input. The original rows are kept unchanged, and the hold-out period is never augmented. The artifact records each blank pattern's hold-out AUC under `metrics.blank_inputs`.
+
+| Chronological hold-out (from 2025-10-20) | Trained on complete rows | Trained with blanked copies |
+|---|---|---|
+| ROC-AUC, every input | 0.894 | 0.893 |
+| Brier score | 0.127 | 0.125 |
+| ROC-AUC, place and time only | 0.67, but every fire scored 92–100% | 0.71, mean 0.46 |
+
+On 20,000 live VIIRS fires (7–8 Nov 2026), the blank-trained model scored AUC 0.864 with every input, against 0.861 for the complete-rows CatBoost and 0.858 for the earlier random forest. With place and time only, it scored 0.708, against 0.562 for the random forest with median filling.
+
+#### Derived features
+
+`modeling/features.py` adds eight features computed from one detection's own inputs: `dryness` ((100 - humidity) x (1 - soil wetness)), `hot_dry`, `rain_class`, `doy_sin` and `doy_cos` (season on a circle), `abs_latitude`, `pixel_area` and `brightness_per_km2`. The trainer and `api/predictor.py` call the same function, so serving matches training. A blank input gives a blank derived feature, never an error, and the blank-input training copies recompute them. Humidity change versus the previous day and multi-day drought trends are not included: they need a second weather lookup per fire, and the weather index holds one nearest-station tree per day.
+
+#### Validation, early stopping and the decision threshold
+
+- **Early stopping.** Training holds out the last `VALIDATION_SHARE` of the training dates, stops after `CATBOOST_EARLY_STOPPING_ROUNDS` rounds without a validation AUC gain, and keeps the best iteration (`metrics.best_iteration`).
+- **Spatial cross-validation.** `metrics.spatial_cv` is 5-fold GroupKFold over 5 x 5 degree blocks, so each fold is scored on places the model never trained on. It is reported as mean and standard deviation of ROC-AUC, Brier score, and recall and precision at the saved threshold. The chronological hold-out (`metrics.roc_auc` and the other existing keys) is unchanged.
+- **Recall-first threshold.** A missed severe fire costs more than a false alarm, so the saved `decision_threshold` is the highest one that still reaches `TARGET_RECALL` on the validation slice. `metrics.at_decision_threshold` gives precision and recall on the test period. The API uses the artifact's threshold unless `DECISION_THRESHOLD` is set, and `?decision_threshold=` on a request overrides both.
+- **Explainability.** After training, CatBoost's native TreeSHAP runs on 5,000 test rows. The mean absolute SHAP value per feature is logged as a text table, stored as `shap_importance`, and returned by `GET /api/v1/model`. In the current model, brightness, confidence, brightness per km² and scan carry most of the weight; every weather input is under 1%.
+- **Tuning.** `TUNE=1` scores depth 4/6/8 × learning rate 0.05/0.1 with spatial GroupKFold and keeps a setting only if it beats the default by `TUNE_MIN_GAIN` (0.005 AUC). In the run behind the current model, the best setting gained 0.0006, so the default (depth 6, learning rate 0.05) was kept.
+
+#### Fire Risk Score (0–100)
+
+Because training uses balanced class weights, the raw probability runs high: on the test period it averaged 0.37 while 0.26 of fires were severe. `modeling/risk.py` fits an isotonic calibration on the validation slice (never the test period). The score is the calibrated chance in percent, so a score of 30 means about 30% of such fires turn out severe. Levels use measured cut-offs: Medium from half the typical severe share, High from the recall-first threshold, and Extreme from a 50% calibrated chance. Every prediction returns `risk_score` and `risk_level`, and `GET /api/v1/model` returns the cut-offs. Older artifacts without a scale return `null` for both.
+
+On the test period, the calibrated score cut the Brier score from 0.126 to 0.107 and matched the observed share (0.260 vs 0.257). The levels separate well:
+
+| Level | Share of test fires | Actually severe |
+|---|---|---|
+| Low | 53% | 5% |
+| Medium | 11% | 19% |
+| High | 17% | 35% |
+| Extreme | 20% | 77% |
+
+#### Before and after, on identical splits
+
+`COMPARE_WITH=<old artifact>` scores the previous model on exactly the same validation slice and chronological test period (76,073 fires from 2025-10-20). Each model's threshold is picked on the validation slice with the same rule. The previous model trained on the dates that now form the validation slice, so only its test numbers are a fair comparison.
+
+| Test period | Previous (blank-trained CatBoost) | Current |
+|---|---|---|
+| ROC-AUC | 0.8928 | 0.8928 |
+| PR-AUC | 0.7856 | 0.7871 |
+| Threshold (from validation) | 0.453 | 0.441 |
+| Recall | 0.805 | 0.813 |
+| Precision | 0.592 | 0.582 |
+| F1 | 0.682 | 0.678 |
+| Severe fires missed | 3,806 | 3,658 |
+| Spatial CV ROC-AUC (5° blocks) | not measured | 0.895 ± 0.005 |
+| Spatial CV recall at threshold | not measured | 0.828 ± 0.010 |
+
+Ranking quality is unchanged. The gains are fewer missed severe fires, calibrated scores, and validation that measures generalisation to unseen places.
+
+Limitations, stated plainly:
+- On 20,000 live fires from 7–8 Nov 2026, the current model scored AUC 0.861 with every input (previous: 0.864) and 0.677 with place and date only (previous: 0.708). That is two days of data, but it is the deployment year, so the place-and-date-only case may have lost a little.
+- The derived features made no difference in spatial CV (0.8949 with and without). Training without them scored lower on the test period (0.8902), so they stay on (`USE_DERIVED_FEATURES=1`).
+- Early stopping holds back the last 15% of training dates. Refitting on all training dates at the chosen iteration may recover some accuracy; this has not been tested.
+- The model is trained on one year (2025). Scores for other years and for places outside the training extent are extrapolations.
+- No temporal (multi-day) weather features and no fire-weather index: neither is available per fire at serving time, so neither was invented.
+
 CatBoost was benchmarked against Random Forest and XGBoost; see the next section.
 
 ### Comparing baseline models
@@ -398,11 +462,19 @@ TRAINING_SOURCE=csv python modeling/train_model.py  # train from cleaned_data/ w
 | `HIGH_FRP_THRESHOLD` | `10` | FRP (MW) at or above which a detection is labelled severe |
 | `MAX_WEATHER_DISTANCE_KM` | `100` | Maximum distance for matching a fire to a same-day weather point |
 | `MAX_TRAINING_ROWS` | `500000` | Cap on the size of the random training sample |
-| `REQUIRE_WEATHER_MATCH` | `1` | `1` trains only on weather-matched fires; `0` trains on all and imputes weather |
+| `REQUIRE_WEATHER_MATCH` | `1` | `1` trains only on weather-matched fires; `0` trains on all and leaves missing weather blank (the model learns blanks) |
 | `TRAINING_SOURCE` | `db` | `db` (PostgreSQL) or `csv` (cleaned files, uses `fires_sample.csv` when present) |
 | `MODEL_ARTIFACT_PATH` | `modeling/artifacts/high_frp_classifier.joblib` | Where the model is saved |
 | `FORCE_RETRAIN` | `0` | Retrain even if an artifact exists |
 | `DB_SCHEMA` | `public` | Schema holding the tables |
+| `CATBOOST_ITERATIONS` | `1000` | Cap on boosting rounds; early stopping usually stops sooner |
+| `CATBOOST_EARLY_STOPPING_ROUNDS` | `50` | Stop when validation AUC has not improved for this many rounds, and keep the best iteration |
+| `CATBOOST_DEPTH` / `CATBOOST_LEARNING_RATE` / `CATBOOST_L2_LEAF_REG` | `6` / `0.05` / `3` | Tree depth, learning rate, L2 regularisation |
+| `CATBOOST_BORDER_COUNT` | `0` (CatBoost default) | Number of bins per numeric feature |
+| `VALIDATION_SHARE` | `0.15` | Share of the latest training dates used for early stopping and the threshold (the test period is never used) |
+| `TARGET_RECALL` | `0.85` | The saved decision threshold is the highest one that still catches this share of severe fires on the validation slice |
+| `TUNE` | `0` | `1` first tries depth 4/6/8 x learning rate 0.05/0.1 with 3-fold spatial cross-validation and uses the best |
+| `BLANK_AUGMENT_SHARE` | `0.5` | Extra training copies with inputs blanked (see Missing inputs) |
 
 Model hyperparameters are set in `modeling/train_model.py`. The artifact is written to a temporary file and swapped in, so a running API never reads a half-written model and a failed save keeps the previous one.
 

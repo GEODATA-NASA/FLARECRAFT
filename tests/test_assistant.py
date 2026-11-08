@@ -129,7 +129,7 @@ def test_tool_executor_validation_and_outputs(runtime):
     assert listed["count"] == 2 and listed["fires"][0]["frp"] == 250.0
     assert 0 <= listed["fires"][0]["high_frp_probability"] <= 1
     scored = tools.run("predict_fire_severity", {"latitude": 30.0, "longitude": 31.0, "acq_date": "2025-01-02", "brightness": 340})
-    assert scored["weather_matched"] is True and "scan" in scored["missing_inputs_imputed"]
+    assert scored["weather_matched"] is True and "scan" in scored["missing_inputs"]
     with pytest.raises(ToolError):
         tools.run("get_fire_statistics", {"start_date": "2025-01-01", "end_date": "2025-01-31", "bbox": [10, 5, -10, 6]})
     with pytest.raises(ToolError):

@@ -47,6 +47,8 @@ class Prediction(BaseModel):
     high_frp_probability: float
     is_high_frp: bool
     predicted_label: str
+    risk_score: float | None = Field(None, description="Fire Risk Score 0-100: the calibrated chance this fire is severe, in percent. None for older models.")
+    risk_level: str | None = Field(None, description="Low, Medium, High or Extreme, from cut-offs measured on the validation period.")
     decision_threshold: float
     high_frp_threshold_mw: float
     weather: WeatherUsed
@@ -131,6 +133,7 @@ class ModelInfo(BaseModel):
     feature_importances: dict[str, float] | None = None
     metrics: dict[str, Any] | None = None
     training_extent: dict[str, Any] | None = None
+    shap_importance: dict[str, float] | None = None
 
 
 class HealthResponse(BaseModel):
