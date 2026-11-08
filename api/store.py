@@ -30,6 +30,7 @@ class Store:
         counts = cells.groupby("country").size()
         self.countries = sorted(c for c in counts.index if isinstance(c, str) and c != "?")
         self.intro_cache = None
+        self.rankings_cache = None
 
     @property
     def db(self):
@@ -107,9 +108,9 @@ class Store:
         frame["country"] = self.cells.country.reindex(frame.cell).to_numpy()
         return frame[["lat", "lon", "n", "weeks", "country"]].round(3).values.tolist()
 
-    def cell_values(self, year, week_from, week_to, bbox=None, limit=20000):
+    def cell_values(self, year, week_from, week_to, bbox=None, limit=20000, country=None):
         """Harmonized activity per cell for a map layer (observed VIIRS when available)."""
-        where = self.bbox_filter(*bbox) if bbox else "TRUE"
+        where = self.area_filter(bbox, country)[0]
         value = "SUM(viirs)" if year >= self.viirs_start else "SUM(recon)"
         frame = self.db.sql(f"""
             SELECT cell, {value}::DOUBLE AS value, SUM(COALESCE(viirs_ind, modis_ind))::DOUBLE AS ind
