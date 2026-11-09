@@ -4,7 +4,7 @@
 
 NASA Space Apps 2026 · Team FLARECRAFT (Assiut, Egypt): George Essam, Mathew Emad, Sondos Alsayed · Challenge: *Harmonization of MODIS and VIIRS Hot Spots*
 
-> **Validation (full 2003-2025 record, leave one year out, 14 held-out years):** the median monthly error by region is 33%, against 35% for a single global conversion factor, and the model wins in 12 of the 14 years. The year-level R² (log) is 0.94, against 0.91 for the single factor. 80% of true values fall inside the 80% uncertainty bands. The gain over one factor is real but modest. The bigger value is the per-place calendar with honest ranges.
+> **Validation (full 2003-2025 record, leave one year out, 14 held-out years):** the median monthly error by region (MdAPE, the median absolute percentage error of 5°×5° region-months) is 33%, against 35% for a single global conversion factor, and the model wins in 12 of the 14 years. The year-level R² on log(1+count) is 0.94, against 0.91 for the single factor. 80% of true values fall inside the 80% uncertainty bands. The gain over one factor is real but modest. The bigger value is the per-place calendar with honest ranges.
 
 ## The problem
 
@@ -36,7 +36,7 @@ Stitching the two records together makes burning appear to jump several-fold in 
 
    **GeoFlare Dashboard: right now.** Live fires from NASA's public FIRMS feed (VIIRS, last 24 hours or 7 days). The feed has no source type, so factories and gas flares are recognised from the archive.
 
-   **GeoFlare Fires.** The [GeoData AI](https://github.com/GEODATA-NASA/GeoData-AI-Forest-Fires-Climate-Intelligence-Pipeline) CatBoost model scores today's fires, and the app grades it against the fire power the satellites measured. A 4-week outlook combines usual activity from the calendar with the model's severity chance. It is a planning guide, not a forecast of individual fires. "Explore the archive" is the GeoData map rebuilt inside GeoFlare: filters, a day-by-day chart, scoring any spot on the map (blank inputs allowed), and the data assistant. Scores show as a calibrated Fire Risk Score (0-100, Low/Medium/High/Extreme) from the GeoData model. "Open the classic map view" opens the original GeoData map on port 8000, with a button back to GeoFlare Fires.
+   **GeoFlare Fires.** The [GeoData AI](https://github.com/GEODATA-NASA/GeoData-AI-Forest-Fires-Climate-Intelligence-Pipeline) CatBoost model (ROC-AUC 0.893 on its chronological hold-out, 0.895 ± 0.005 in spatial cross-validation) scores today's fires, and the app grades it against the fire power the satellites measured. A 4-week outlook combines usual activity from the calendar with the model's severity chance. It is a planning guide, not a forecast of individual fires. "Explore the archive" is the GeoData map rebuilt inside GeoFlare: filters, a day-by-day chart, scoring any spot on the map (blank inputs allowed), and the data assistant. Scores show as a calibrated Fire Risk Score (0-100, Low/Medium/High/Extreme) from the GeoData model. "Open the classic map view" opens the original GeoData map on port 8000, with a button back to GeoFlare Fires.
 
    **GeoFlare Air.** Type your town or share your location. GeoFlare joins three sources at that point:
    - industrial heat sites within 100 km, from the archive, with distance, direction, how many weeks each glowed, the trend since 2012, and whether each glowed in the last 24 hours;
@@ -69,8 +69,36 @@ Known limits, stated plainly:
 
 ## Run it
 
+GeoFlare is a folder inside the GeoData AI repository. The commands below assume that layout, with this folder as `geoflare/` and GeoData AI as its parent.
+
+### Windows (one click)
+
+The scripts create each virtual environment, install the requirements (including `duckdb`) and start the servers, so there is nothing to set up by hand.
+
+| Run | What happens |
+|---|---|
+| `..\start_all_master.cmd` | Runs the GeoData AI pipeline (`main.py`), then the GeoFlare pipeline, then starts both servers. For a fresh clone. |
+| `..\run_pipeline_and_servers.cmd` | Runs the GeoFlare pipeline (download, aggregate, build, rankings). If every step succeeds it starts both servers; if one fails it stops and starts nothing. |
+| `start.cmd` | Starts GeoData AI on port 8000 and GeoFlare on port 8010, then opens the browser. Use it once the data is built. |
+
+`start.cmd dashboard`, `start.cmd fires` or `start.cmd air` opens one app directly; plain `start.cmd` plays the story first. Keep the window open while you use the apps.
+
+### macOS and Linux
+
 ```bash
-python -m venv .venv && .venv/Scripts/pip install -r requirements.txt
+# once
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+.venv/bin/python -m pipeline.download && .venv/bin/python -m pipeline.aggregate \
+  && .venv/bin/python -m pipeline.build && .venv/bin/python -m pipeline.rankings
+
+# every time: GeoFlare on http://127.0.0.1:8010 (GeoData AI runs from the repository root on port 8000)
+.venv/bin/python -m uvicorn api.main:app --port 8010
+```
+
+### Step by step (any system)
+
+```bash
+python -m venv .venv && .venv/Scripts/pip install -r requirements.txt   # on macOS and Linux: .venv/bin/pip
 python -m pipeline.download          # ~9.6 GB FIRMS yearly archives (resumable)
 python -m pipeline.aggregate         # daily 0.25° aggregates (data/agg)
 python -m pipeline.build             # leave-one-year-out validation, final model, products (data/product)
@@ -78,11 +106,13 @@ python -m pipeline.rankings          # country leaderboard (needs the GeoData cl
 .venv/Scripts/python -m uvicorn api.main:app --port 8010  # app + API at http://127.0.0.1:8010
 ```
 
-Generated data is not in this repository, so a fresh clone needs the pipeline steps above first. The Severity chapter also needs the GeoData AI service running on port 8000 (`GEODATA_API` overrides the address). On Windows, `start.cmd` starts both services if GeoData AI is cloned next to this folder as `repo`. `start.cmd dashboard`, `start.cmd fires` or `start.cmd air` opens one app directly; plain `start.cmd` plays the story first.
+Generated data is not in this repository, so a fresh clone needs the pipeline steps first. Until `data/product/report.json` exists, `start.cmd` serves a small 2025 preview from `data/product-agg-dev` if you built one (`python -m pipeline.dev_local`, then `python -m pipeline.build --source agg-dev --no-loyo`).
+
+The Severity chapter also needs the GeoData AI service running on port 8000 (`GEODATA_API` overrides the address). `start.cmd` starts it from the parent folder using that folder's `.venv`; in a side-by-side setup, where GeoData AI is a sibling folder called `repo`, it uses that instead. If GeoData AI is not running, the Fires app, the severity scores and the 4-week outlook say the service is offline.
 
 `python -m pipeline.run` does the aggregate and build steps without supervision, picking up each archive as it finishes downloading. Open `/dashboard`, `/fires` or `/air` (or add `?app`) to skip the story.
 
-Pipeline data paths are centralized in `pipeline/config.py`. Defaults are `../firms_archive/zips` for downloads, `data/` for generated data, and `../cleaned_data/` for the cleaned fires CSV. Override them with `FIRMS_ARCHIVE_DIR`, `EMBER_DATA_DIR`, and `CLEANED_DATA_DIR`; `EMBER_PRODUCT` can point the API at a separately located product directory.
+Pipeline data paths are centralized in `pipeline/config.py`. Defaults are `../firms_archive/zips` for downloads, `data/` for generated data, and `../cleaned_data/` for the cleaned fires CSV. Override them with `FIRMS_ARCHIVE_DIR`, `EMBER_DATA_DIR`, and `CLEANED_DATA_DIR`; `EMBER_PRODUCT` can point the API at a separately located product directory. For Docker, the full endpoint list and every setting, see [GEOFLARE_GUIDE.md](../GEOFLARE_GUIDE.md).
 
 ### API
 
