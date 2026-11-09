@@ -59,6 +59,14 @@ cd geoflare
 
 `python -m pipeline.run` does aggregate and build unattended, picking up each archive as it finishes downloading.
 
+**Run GeoFlare by itself** (from the `geoflare` folder, after building its data):
+
+```bat
+.venv\Scripts\python -m uvicorn api.main:app --host 127.0.0.1 --port 8010
+```
+
+The GeoData AI service on port 8000 is only needed for severity scores and the Fires app integrations. To start both services together, use `start.cmd` as described below.
+
 **Start everything.** Double-click `geoflare\start.cmd`. It starts GeoData on port 8000 if it isn't already running, then GeoFlare on port 8010, then opens the browser. To open one app directly:
 
 ```bat
@@ -68,7 +76,7 @@ geoflare\start.cmd fires      :: GeoFlare Fires
 geoflare\start.cmd air        :: GeoFlare Air
 ```
 
-**Or start the two services by hand**, each in its own window:
+**Or start both services by hand**, each in its own window:
 
 ```bat
 :: window 1, repository root: GeoData AI on http://127.0.0.1:8000

@@ -13,14 +13,14 @@ MODIS adds veg_t / veg_a (Terra / Aqua split), because the two overpass at diffe
 
 import duckdb
 
-from pipeline.config import DATA_DIR
+from pipeline.config import aggregate_sensor_dir, weekly_cache_file
 
 WEEK = "LEAST(CAST((dayofyear(date) - 1) // 7 AS INTEGER), 51)"
 
 
 def weekly(sensor, years=None, source="agg", by_country=False):
     """Return a pandas frame of (year, week, cell[, country]) rows for one sensor."""
-    path = DATA_DIR / source / sensor / "*.parquet"
+    path = aggregate_sensor_dir(sensor, source) / "*.parquet"
     keys = "country, year, week" if by_country else "year, week, cell"
     where = f"WHERE year(date) BETWEEN {years[0]} AND {years[1]}" if years else ""
     modis_split = (
@@ -52,8 +52,8 @@ def weekly_cached(sensor, source="agg"):
     """All years for one sensor, cached as data/weekly/<source>/<sensor>.parquet."""
     import pandas as pd
 
-    cache = DATA_DIR / "weekly" / source / f"{sensor}.parquet"
-    inputs = list((DATA_DIR / source / sensor).glob("*.parquet"))
+    cache = weekly_cache_file(sensor, source)
+    inputs = list(aggregate_sensor_dir(sensor, source).glob("*.parquet"))
     if cache.exists() and all(p.stat().st_mtime < cache.stat().st_mtime for p in inputs):
         return pd.read_parquet(cache)
     frame = weekly(sensor, source=source)

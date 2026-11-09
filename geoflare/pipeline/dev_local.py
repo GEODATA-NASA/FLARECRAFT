@@ -9,9 +9,9 @@ import sys
 import pandas as pd
 
 from pipeline.aggregate import aggregate_frame
-from pipeline.config import DATA_DIR, ROOT
+from pipeline.config import CLEANED_FIRES_FILE, aggregate_file
 
-SOURCE = ROOT.parent / "cleaned_data" / "cleaned_master_fires.csv"
+SOURCE = CLEANED_FIRES_FILE
 SENSORS = {"modis": "modis", "viirs_suomi": "viirs-snpp", "viirs_j1": "viirs-jpss1"}
 
 
@@ -30,7 +30,7 @@ def main(path=SOURCE):
         frame = frame.groupby(["date", "cell", "type", "sat", "country"], observed=True, sort=False).agg(
             n=("n", "sum"), n_conf=("n_conf", "sum"), n_night=("n_night", "sum"),
             frp_sum=("frp_sum", "sum"), frp_max=("frp_max", "max")).reset_index()
-        target = DATA_DIR / "agg-dev" / sensor / "2025.parquet"
+        target = aggregate_file(sensor, 2025, source="agg-dev")
         target.parent.mkdir(parents=True, exist_ok=True)
         frame.to_parquet(target, index=False, compression="zstd")
         print(sensor, len(frame), flush=True)

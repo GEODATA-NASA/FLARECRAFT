@@ -22,7 +22,7 @@ import joblib
 import numpy as np
 import pandas as pd
 
-from pipeline.config import DATA_DIR, cell_center
+from pipeline.config import aggregate_dir, cell_center, product_dir
 from pipeline.harmonize import (FEATURES, VIIRS_STATIC, aggregate_errors, assemble, calibration_table, fit,
                                 static_features)
 from pipeline.weekly import weekly_cached
@@ -104,7 +104,7 @@ def band(pred, table):
 
 
 def dominant_country(source):
-    path = (DATA_DIR / source / "*" / "*.parquet").as_posix()
+    path = (aggregate_dir(source) / "*" / "*.parquet").as_posix()
     frame = duckdb.sql(f"""
         SELECT cell, arg_max(country, n) AS country FROM (
             SELECT cell, country, SUM(n) AS n FROM read_parquet('{path}', union_by_name=true)
@@ -114,7 +114,11 @@ def dominant_country(source):
 
 
 def main(source="agg", loyo=True):
-    out = DATA_DIR / "product" if source == "agg" else DATA_DIR / f"product-{source}"
+    out = product_dir(source)
+    outputs = ("final_model.joblib", "cellweek.parquet", "cells.parquet", "report.json")
+    if all((out / name).is_file() for name in outputs):
+        log(f"product already exists at {out}; skipping build")
+        return
     out.mkdir(parents=True, exist_ok=True)
     m = weekly_cached("modis", source)
     v = weekly_cached("viirs-snpp", source)

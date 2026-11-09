@@ -359,7 +359,7 @@ const Story = (() => {
   const n = (v, d = 1) => (v == null || !isFinite(v) ? "—" : v.toFixed(d));
   const pct = (v) => (v == null ? "—" : `${Math.round(v * 100)}%`);
   const stats = (items) => `<div class="story-stats">${items.map(([v, k]) => `<div><strong>${v}</strong><span>${k}</span></div>`).join("")}</div>`;
-  const team = [["GE", "George Essam"], ["ME", "Mathew Emad"], ["SA", "Sondos Alsayed"]];
+  const team = [["BA", "Beshoy Abd Elmaseh"], ["BK", "Beshoy Kamal"], ["GE", "George Essam"], ["ME", "Mathew Emad"], ["SA", "Sondos Alsayed"]];
   const yearTotal = () => (data && data.annual ? data.annual.harmonized[data.annual.years.indexOf(data.year)] : null);
   const cov = () => data && data.validation && data.validation.length ? data.band_coverage : null;
   const APPS = [
@@ -485,7 +485,7 @@ const Story = (() => {
       stats: () => `<div class="team">${team.map(([i, name]) => `<div class="member"><span class="avatar">${i}</span>${name}</div>`).join("")}</div>`,
       enter: () => { clearFigure(); fadeGlobe(1); pin = { ...HOME, lat: 27.18, lon: 31.18, name: "Assiut" }; layers({ archive: 0.45, pin: 1, globe: 1.1, cx: 0.66, spin: 0.05 }); rotateTo(HOME.lon, HOME.lat - 6, 1600); },
       lines: [
-        { mood: "laugh", say: "These are my humans: George, Mathew and Sondos. They built all of this for NASA Space Apps 2026, to show that science and fun aren't opposites." },
+        { mood: "laugh", say: "These are my humans: Beshoy A, Beshoy K, George, Mathew and Sondos. They built all of this for NASA Space Apps 2026, to show that science and fun aren't opposites." },
       ] },
     { chapter: "Your turn", title: () => "Three apps. <em>One planet.</em>",
       stats: () => `<div class="story-apps">${APPS.map((a) => `<button class="story-app ${a.view}" data-app="${a.view}"><strong>${a.name}</strong><span>${a.line}</span></button>`).join("")}</div>`,

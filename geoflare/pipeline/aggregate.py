@@ -14,7 +14,7 @@ import zipfile
 import numpy as np
 import pandas as pd
 
-from pipeline.config import ARCHIVE_DIR, DATA_DIR, cell_id
+from pipeline.config import ARCHIVE_DIR, aggregate_file, cell_id
 
 USECOLS = ["latitude", "longitude", "acq_date", "satellite", "confidence", "frp", "daynight", "type"]
 NAME = re.compile(r"(?P<sensor>modis|viirs-snpp|viirs-jpss1)_(?P<year>\d{4})_all_countries\.zip$")
@@ -60,7 +60,7 @@ def aggregate_frame(frame, sensor, country):
 
 
 def aggregate_zip(path, sensor, year):
-    target = DATA_DIR / "agg" / sensor / f"{year}.parquet"
+    target = aggregate_file(sensor, year)
     if target.exists():
         return f"skip {target}"
     started = time.time()

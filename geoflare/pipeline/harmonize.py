@@ -23,7 +23,7 @@ import pandas as pd
 from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.metrics import d2_tweedie_score
 
-from pipeline.config import DATA_DIR, N_COLS, N_ROWS
+from pipeline.config import MODEL_DIR, N_COLS, N_ROWS
 from pipeline.weekly import weekly
 
 NCELLS = N_COLS * N_ROWS
@@ -245,7 +245,7 @@ def run(train_years, valid_years, source="agg", out=None):
     report, _ = evaluate(model, train, valid, features)
     report.update({"train_years": train_years, "valid_years": valid_years, "features": features,
                    "seconds": round(time.time() - started)})
-    out = out or DATA_DIR / "models"
+    out = out or MODEL_DIR
     out.mkdir(parents=True, exist_ok=True)
     tag = f"{train_years[0]}-{train_years[1]}_v{valid_years[0]}-{valid_years[1]}"
     (out / f"report_{tag}.json").write_text(json.dumps(report, indent=2))

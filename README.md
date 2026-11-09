@@ -934,3 +934,196 @@ Contributions, ideas, and discussions are welcome!
 If you find it useful, please ⭐ the repository or buy us a coffee! 🙏
 
 [![Buy Me A Coffee](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/george_samer)
+
+```
+GEODATA
+├─ .dockerignore
+├─ api
+│  ├─ assistant
+│  │  ├─ knowledge.py
+│  │  ├─ service.py
+│  │  ├─ tools.py
+│  │  └─ __init__.py
+│  ├─ deps.py
+│  ├─ filters.py
+│  ├─ logging_config.py
+│  ├─ main.py
+│  ├─ predictor.py
+│  ├─ repositories
+│  │  ├─ base.py
+│  │  ├─ csv_backend.py
+│  │  ├─ postgres.py
+│  │  └─ __init__.py
+│  ├─ routers
+│  │  ├─ assistant.py
+│  │  ├─ fires.py
+│  │  ├─ health.py
+│  │  ├─ predict.py
+│  │  ├─ weather.py
+│  │  └─ __init__.py
+│  ├─ runtime.py
+│  ├─ schemas.py
+│  ├─ serialization.py
+│  ├─ settings.py
+│  ├─ tools_create_indexes.py
+│  ├─ tools_make_sample.py
+│  ├─ version.py
+│  ├─ weather_index.py
+│  └─ __init__.py
+├─ config.py
+├─ docker-compose.yml
+├─ Dockerfile
+├─ frontend
+│  ├─ app.js
+│  ├─ index.html
+│  └─ style.css
+├─ geoflare
+│  ├─ .dockerignore
+│  ├─ api
+│  │  ├─ air.py
+│  │  ├─ analytics.py
+│  │  ├─ live.py
+│  │  ├─ main.py
+│  │  ├─ store.py
+│  │  └─ __init__.py
+│  ├─ data
+│  │  ├─ agg
+│  │  │  ├─ modis
+│  │  │  │  ├─ 2000.parquet
+│  │  │  │  ├─ 2001.parquet
+│  │  │  │  ├─ 2002.parquet
+│  │  │  │  ├─ 2003.parquet
+│  │  │  │  ├─ 2004.parquet
+│  │  │  │  ├─ 2005.parquet
+│  │  │  │  ├─ 2006.parquet
+│  │  │  │  ├─ 2007.parquet
+│  │  │  │  ├─ 2008.parquet
+│  │  │  │  ├─ 2009.parquet
+│  │  │  │  ├─ 2010.parquet
+│  │  │  │  ├─ 2011.parquet
+│  │  │  │  ├─ 2012.parquet
+│  │  │  │  ├─ 2013.parquet
+│  │  │  │  ├─ 2014.parquet
+│  │  │  │  ├─ 2015.parquet
+│  │  │  │  ├─ 2016.parquet
+│  │  │  │  ├─ 2017.parquet
+│  │  │  │  ├─ 2018.parquet
+│  │  │  │  ├─ 2019.parquet
+│  │  │  │  ├─ 2020.parquet
+│  │  │  │  ├─ 2021.parquet
+│  │  │  │  ├─ 2022.parquet
+│  │  │  │  ├─ 2023.parquet
+│  │  │  │  ├─ 2024.parquet
+│  │  │  │  └─ 2025.parquet
+│  │  │  ├─ viirs-jpss1
+│  │  │  │  ├─ 2018.parquet
+│  │  │  │  ├─ 2019.parquet
+│  │  │  │  ├─ 2020.parquet
+│  │  │  │  ├─ 2021.parquet
+│  │  │  │  ├─ 2022.parquet
+│  │  │  │  ├─ 2023.parquet
+│  │  │  │  ├─ 2024.parquet
+│  │  │  │  └─ 2025.parquet
+│  │  │  └─ viirs-snpp
+│  │  │     ├─ 2012.parquet
+│  │  │     ├─ 2013.parquet
+│  │  │     ├─ 2014.parquet
+│  │  │     ├─ 2015.parquet
+│  │  │     ├─ 2016.parquet
+│  │  │     ├─ 2017.parquet
+│  │  │     ├─ 2018.parquet
+│  │  │     ├─ 2019.parquet
+│  │  │     ├─ 2020.parquet
+│  │  │     ├─ 2021.parquet
+│  │  │     ├─ 2022.parquet
+│  │  │     ├─ 2023.parquet
+│  │  │     ├─ 2024.parquet
+│  │  │     └─ 2025.parquet
+│  │  ├─ live
+│  │  │  └─ 24h.parquet
+│  │  ├─ product
+│  │  │  ├─ cells.parquet
+│  │  │  ├─ cellweek.parquet
+│  │  │  ├─ final_model.joblib
+│  │  │  ├─ rankings.json
+│  │  │  └─ report.json
+│  │  ├─ ref
+│  │  │  └─ countryInfo.txt
+│  │  └─ weekly
+│  │     └─ agg
+│  │        ├─ modis.parquet
+│  │        ├─ viirs-jpss1.parquet
+│  │        └─ viirs-snpp.parquet
+│  ├─ Dockerfile
+│  ├─ pipeline
+│  │  ├─ aggregate.py
+│  │  ├─ build.py
+│  │  ├─ config.py
+│  │  ├─ dev_local.py
+│  │  ├─ download.py
+│  │  ├─ harmonize.py
+│  │  ├─ rankings.py
+│  │  ├─ run.py
+│  │  ├─ weekly.py
+│  │  └─ __init__.py
+│  ├─ README.md
+│  ├─ requirements.txt
+│  ├─ start.cmd
+│  └─ web
+│     ├─ air.js
+│     ├─ app.js
+│     ├─ fires.css
+│     ├─ fires.js
+│     ├─ flick.js
+│     ├─ index.html
+│     ├─ intro.js
+│     ├─ style.css
+│     └─ ui.js
+├─ GEOFLARE_GUIDE.md
+├─ integration
+│  └─ NASA_POWER.py
+├─ LICENSE
+├─ loadation
+│  └─ load.py
+├─ main.py
+├─ modeling
+│  ├─ artifacts
+│  │  └─ high_frp_classifier.joblib
+│  ├─ compare_models.py
+│  ├─ features.py
+│  ├─ risk.py
+│  └─ train_model.py
+├─ orchestration
+│  ├─ airflow.Dockerfile
+│  ├─ dags
+│  │  └─ geodata_pipeline.py
+│  ├─ tasks.py
+│  └─ __init__.py
+├─ README.md
+├─ requirements-dev.txt
+├─ requirements.txt
+├─ run_pipeline_and_servers.cmd
+├─ scheduler.py
+├─ scripts
+│  ├─ geodata.ico
+│  └─ start_app.cmd
+├─ start_all_master.cmd
+├─ tests
+│  ├─ conftest.py
+│  ├─ test_api.py
+│  ├─ test_assistant.py
+│  ├─ test_blank_inputs.py
+│  ├─ test_degraded.py
+│  ├─ test_load.py
+│  ├─ test_model_upgrades.py
+│  ├─ test_orchestration.py
+│  ├─ test_risk_score.py
+│  ├─ test_sql_repository.py
+│  ├─ test_weather_download.py
+│  └─ __init__.py
+├─ transformation
+│  └─ transform.py
+└─ utils
+   └─ quality_checks.py
+
+```
