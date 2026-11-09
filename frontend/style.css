@@ -379,3 +379,6 @@ textarea#ask-input:disabled { opacity: 0.6; cursor: not-allowed; }
 /* the way back to GeoFlare Fires */
 .nav-links > a.back-pill { background: var(--accent); color: #fff; padding: 7px 14px; border-radius: 999px; font-weight: 700; }
 .nav-links > a.back-pill:hover { text-decoration: none; filter: brightness(1.08); }
+
+/* GeoFlare Air sites switch */
+.air-tag { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: #0a84ff; color: #fff; font-size: 10.5px; font-weight: 700; vertical-align: 1px; }
