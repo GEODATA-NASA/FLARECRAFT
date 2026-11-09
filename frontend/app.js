@@ -136,6 +136,38 @@
     state.baseManual = false;
   }
   const canvasRenderer = L.canvas({ padding: 0.5 });
+
+  // ---------------------------------------------------- GeoFlare Air sites
+  // The same persistent industrial heat sites (gas flares, refineries, plants) GeoFlare Air shows, read from
+  // GeoFlare on port 8010. Drawn in their own pane so fire points never hide them.
+  const GEOFLARE = `${location.protocol}//${location.hostname}:8010`;
+  map.createPane("airSites"); map.getPane("airSites").style.zIndex = 450;
+  const airLayer = L.layerGroup();
+  async function toggleAirSites(on) {
+    if (!on) { map.removeLayer(airLayer); return; }
+    if (!airLayer.getLayers().length) {
+      try {
+        const response = await fetch(`${GEOFLARE}/api/industry`);
+        if (!response.ok) throw new Error(`GeoFlare answered ${response.status}`);
+        const data = await response.json();
+        const max = Math.max(...data.sites.map((s) => s[2])) || 1;
+        data.sites.forEach(([lat, lon, n, weeks, country]) => {
+          const place = country && country !== "?" ? country : "this area";
+          L.circleMarker([lat, lon], { pane: "airSites", radius: 3 + 8 * Math.sqrt(n / max), color: "#ffffff", weight: 1, fillColor: "#0a84ff", fillOpacity: 0.85 })
+            .bindPopup(`<p class="pop-title">Factory or gas flare</p><p class="pop-sub">${place} · ${lat.toFixed(2)}, ${lon.toFixed(2)}</p>
+              <table><tr><td>Hot pixels in ${data.year}</td><td>${fmt.format(Math.round(n))}</td></tr><tr><td>Weeks glowing</td><td>${weeks} of 52</td></tr></table>
+              <a class="pop-action" href="${GEOFLARE}/air#${lat.toFixed(3)},${lon.toFixed(3)},${encodeURIComponent("Near a site in " + place)}">Check the air here in GeoFlare Air &rarr;</a>`, { maxWidth: 280 })
+            .addTo(airLayer);
+        });
+        toast(`${fmt.format(data.sites.length)} factories and gas flares from GeoFlare Air, ${data.year}. These are not wildfires.`);
+      } catch (error) {
+        el("show-air").checked = false;
+        toast("GeoFlare isn't running on port 8010, so the factory and flare sites can't be shown. Start it with geoflare\\start.cmd.");
+        return;
+      }
+    }
+    airLayer.addTo(map);
+  }
   map.on("click", (event) => { setPin(event.latlng.lat, event.latlng.lng, true); el("predict-disclosure").open = true; });
 
   function setPin(lat, lon, ripple) {
@@ -310,8 +342,15 @@
   function renderSummary(geojson, stats) {
     const meta = geojson.metadata, f = state.lastFilters;
     el("hero-range").textContent = f ? `${dateLabel(f.start_date)} to ${dateLabel(f.end_date)}${f.bbox ? ", area on screen" : ""}` : "";
-    countTo("stat-total", stats ? stats.total : 0, (v) => fmt.format(Math.round(v)));
-    el("hero-note").textContent = meta.truncated ? `· ${fmt.format(meta.count)} most recent drawn` : (meta.count && stats && meta.count < stats.total ? `· ${fmt.format(meta.count)} drawn` : "");
+    // A random sample (CSV backend with fires_sample.csv) keeps shares right but shrinks counts, so show the
+    // estimated full count and say so. Shares, rates and the chart's shape need no scaling.
+    const data = state.health && state.health.data, fraction = data && data.is_subset && data.sample_fraction ? data.sample_fraction : null;
+    const scale = fraction ? 1 / fraction : 1;
+    const round3 = (v) => { if (v < 1000) return Math.round(v); const p = Math.pow(10, Math.floor(Math.log10(v)) - 2); return Math.round(v / p) * p; };
+    countTo("stat-total", stats ? stats.total * scale : 0, (v) => (fraction ? "≈ " : "") + fmt.format(fraction ? round3(v) : Math.round(v)));
+    el("hero-note").textContent = fraction
+      ? `(estimated from a ${(fraction * 100).toFixed(1)}% random sample: ${fmt.format(stats ? stats.total : 0)} in the sample${meta.count && stats && meta.count < stats.total ? `, ${fmt.format(meta.count)} drawn` : ""})`
+      : meta.truncated ? `· ${fmt.format(meta.count)} most recent drawn` : (meta.count && stats && meta.count < stats.total ? `· ${fmt.format(meta.count)} drawn` : "");
     countTo("stat-predicted", meta.predicted_high_frp != null && meta.count ? (meta.predicted_high_frp / meta.count) * 100 : 0, (v) => v.toFixed(1) + "%");
     countTo("stat-observed", stats && stats.total ? stats.high_frp_share * 100 : 0, (v) => v.toFixed(1) + "%");
     if (stats) el("thr").textContent = stats.high_frp_threshold_mw;
@@ -323,7 +362,7 @@
     const pal = palette(), breakdown = el("source-breakdown");
     if (stats && stats.by_source.length) {
       const max = Math.max(...stats.by_source.map((s) => s.count));
-      breakdown.innerHTML = stats.by_source.map((s) => `<li><span>${SOURCE_LABELS[s.source] || s.source}</span><span class="bar"><span data-source="${s.source}" style="background:${pal.sources[s.source] || pal.text3}" data-w="${s.count / max}"></span></span><span class="count">${fmt.format(s.count)}</span></li>`).join("");
+      breakdown.innerHTML = stats.by_source.map((s) => `<li><span>${SOURCE_LABELS[s.source] || s.source}</span><span class="bar"><span data-source="${s.source}" style="background:${pal.sources[s.source] || pal.text3}" data-w="${s.count / max}"></span></span><span class="count">${fraction ? "≈ " + fmt.format(round3(s.count * scale)) : fmt.format(s.count)}</span></li>`).join("");
       breakdown.querySelectorAll(".bar span").forEach((bar, i) => tween({ targets: bar, scaleX: [0, Number(bar.dataset.w)], duration: 600, delay: 120 + i * 60, easing: "easeOutCubic" }));
     } else {
       breakdown.innerHTML = "";
@@ -405,7 +444,7 @@
     try {
       const health = await getJSON("/health");
       state.health = health;
-      const backend = health.backend === "postgres" ? "PostgreSQL" : health.backend === "csv" ? "CSV sample" : health.backend;
+      const backend = health.backend === "postgres" ? "PostgreSQL" : health.backend === "csv" ? (health.data && health.data.is_subset ? `CSV sample (${((health.data.sample_fraction || 0) * 100).toFixed(1)}%)` : "CSV, full data") : health.backend;
       text.textContent = `${backend}, model ${health.model.loaded ? "ready" : "missing"}`;
       pill.className = "status " + (health.status === "ok" ? "ok" : "warn");
       pill.title = `Fire data ${health.fire_date_range.start_date ?? "?"} to ${health.fire_date_range.end_date ?? "?"}. Weather ${health.weather.start_date ?? "none"} to ${health.weather.end_date ?? ""}.`;
@@ -604,6 +643,7 @@
     el("p-track").value = pixels ? pixels.track : "";
   });
   el("toggle-sidebar").addEventListener("click", toggleSidebar);
+  el("show-air").addEventListener("change", (e) => toggleAirSites(e.target.checked));
   window.addEventListener("resize", () => { if (state.chartRows.length) drawChart(); });
 
   el("p-date").addEventListener("input", () => { state.dateTouched = true; });

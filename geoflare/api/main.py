@@ -14,6 +14,7 @@ from pathlib import Path
 import json
 
 from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 import requests
 from fastapi.responses import FileResponse, Response, StreamingResponse
@@ -32,6 +33,8 @@ app = FastAPI(title="GeoFlare", version="2.0",
               description="GeoFlare Dashboard, Fires and Air: a harmonized MODIS + VIIRS fire record, live fires scored for severity, "
                           "and the air around gas flares and factories.")
 app.add_middleware(GZipMiddleware, minimum_size=1000)
+# Read-only data endpoints may be read from other origins, so the classic GeoData map (port 8000) can show GeoFlare Air's sites.
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["GET"], allow_headers=["*"])
 
 
 @app.middleware("http")
@@ -201,6 +204,15 @@ def places(q: str = Query(..., min_length=2, max_length=80)):
         return air.places(q)
     except requests.RequestException as error:
         raise HTTPException(503, f"Place search is unavailable: {error}")
+
+
+@app.get("/api/findings")
+def findings():
+    """Are factory and flare heat and wildfires related? Rhythm, proximity and trend checks (python -m pipeline.findings)."""
+    path = PRODUCT / "findings.json"
+    if not path.exists():
+        raise HTTPException(404, "findings not built yet: run python -m pipeline.findings")
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 @app.get("/api/rankings")

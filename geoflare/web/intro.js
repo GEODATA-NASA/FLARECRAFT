@@ -242,6 +242,71 @@ const Story = (() => {
     ring(x(data.viirs_start) + x.bandwidth() / 2, y(a.naive[i]) - 4, Math.max(26, x.bandwidth() * 1.6), `${data.viirs_start}: ×${(data.jump ? data.jump.naive_ratio : 4).toFixed(1)} overnight`);
   }
 
+  /* ------------------------------------------------------------------ Air story figures (from /api/findings) */
+  let findings = null;
+  function axisLabel(text, x, y, anchor = "start") { svg.append("text").attr("class", "fig-label").attr("x", x).attr("y", y).attr("text-anchor", anchor).text(text); }
+  function legendRow(items, x, y) {
+    items.forEach(([label, color], i) => {
+      const g = svg.append("g").attr("transform", `translate(${x + i * 210},${y})`);
+      g.append("rect").attr("width", 18).attr("height", 4).attr("y", -4).attr("rx", 2).attr("fill", color);
+      g.append("text").attr("class", "fig-title").attr("x", 26).attr("y", 1).style("font-size", "14px").text(label);
+    });
+  }
+  function drawLine(points, x, y, color, width = 2.8) {
+    const ln = svg.append("path").datum(points).attr("fill", "none").attr("stroke", color).attr("stroke-width", width)
+      .attr("d", d3.line().x((d) => x(d[0])).y((d) => y(d[1])).curve(d3.curveMonotoneX));
+    const len = ln.node().getTotalLength();
+    ln.attr("stroke-dasharray", `${len} ${len}`).attr("stroke-dashoffset", len);
+    anime({ targets: ln.node(), strokeDashoffset: [len, 0], duration: reduced ? 0 : 1600, easing: "easeInOutSine" });
+  }
+  function rhythmFigure() {
+    clearFigure();
+    if (!findings) return;
+    const r = findings.rhythm, b = box(), weeks = d3.range(52);
+    const norm = (a) => { const m = d3.mean(a) || 1; return a.map((v) => v / m); };
+    const f = norm(r.fires_by_week), ind = norm(r.industry_by_week);
+    const x = d3.scaleLinear().domain([0, 51]).range([b.x0 + 44, b.x1]);
+    const y = d3.scaleLinear().domain([0, d3.max([...f, ...ind]) * 1.1]).range([b.y1, b.y0 + 30]);
+    svg.append("g").attr("class", "fig-axis").attr("transform", `translate(${b.x0 + 44},0)`).call(d3.axisLeft(y).ticks(4).tickFormat((v) => `${v.toFixed(1)}×`).tickSize(-(b.w - 44))).call((g) => g.select(".domain").remove());
+    ["Jan", "Apr", "Jul", "Oct"].forEach((m, i) => axisLabel(m, x(i * 13), b.y1 + 22));
+    axisLabel("How busy each week is, compared with that one's own average", b.x0 + 44, b.y0 + 6);
+    drawLine(weeks.map((w) => [w, f[w]]), x, y, "#ff7a2f");
+    drawLine(weeks.map((w) => [w, ind[w]]), x, y, "#64d2ff");
+    legendRow([["Wildfires", "#ff7a2f"], ["Factories and flares", "#64d2ff"]], b.x0 + 44, b.y1 + 52);
+  }
+  function proximityFigure() {
+    clearFigure();
+    if (!findings) return;
+    const pr = findings.proximity, b = box();
+    const rows = pr.examples.slice(0, 7).sort((a, c) => c.ratio - a.ratio);
+    const x = d3.scaleLinear().domain([0, Math.max(2, d3.max(rows, (d) => d.ratio) * 1.1)]).range([b.x0 + 150, b.x1 - 40]);
+    const y = d3.scaleBand().domain(rows.map((d) => d.country)).range([b.y0 + 40, b.y1]).padding(0.3);
+    axisLabel("Fires next to industry, compared with elsewhere in the same country", b.x0, b.y0 + 6);
+    svg.append("line").attr("x1", x(1)).attr("x2", x(1)).attr("y1", b.y0 + 30).attr("y2", b.y1).attr("stroke", "rgba(245,239,230,.45)").attr("stroke-dasharray", "4 4");
+    axisLabel("same as elsewhere", x(1) + 6, b.y0 + 26);
+    rows.forEach((d) => {
+      svg.append("text").attr("class", "fig-title").attr("x", b.x0 + 140).attr("y", y(d.country) + y.bandwidth() * 0.7).attr("text-anchor", "end").style("font-size", "14px").text(d.country);
+      const bar = svg.append("rect").attr("x", x(0)).attr("y", y(d.country)).attr("height", y.bandwidth()).attr("rx", 4).attr("width", 0).attr("fill", d.ratio >= 1 ? "#ff7a2f" : "#64d2ff");
+      anime({ targets: bar.node(), width: x(d.ratio) - x(0), duration: reduced ? 0 : 900, easing: "easeOutCubic" });
+      svg.append("text").attr("class", "fig-title").attr("x", x(d.ratio) + 8).attr("y", y(d.country) + y.bandwidth() * 0.7).style("font-size", "14px").text(`${d.ratio.toFixed(1)}×`);
+    });
+  }
+  function trendFigure() {
+    clearFigure();
+    if (!findings) return;
+    const tr = findings.trends, b = box(), years = d3.range(tr.years[0], tr.years[1] + 1);
+    const idx = (a) => a.map((v) => v / (a[0] || 1));
+    const f = idx(tr.world_fires), ind = idx(tr.world_industry);
+    const x = d3.scaleLinear().domain(d3.extent(years)).range([b.x0 + 44, b.x1]);
+    const y = d3.scaleLinear().domain([d3.min([...f, ...ind]) * 0.9, d3.max([...f, ...ind]) * 1.1]).range([b.y1, b.y0 + 30]);
+    svg.append("g").attr("class", "fig-axis").attr("transform", `translate(${b.x0 + 44},0)`).call(d3.axisLeft(y).ticks(4).tickFormat((v) => `${v.toFixed(1)}×`).tickSize(-(b.w - 44))).call((g) => g.select(".domain").remove());
+    years.filter((v, i) => i % 3 === 0).forEach((yr) => axisLabel(String(yr), x(yr), b.y1 + 22, "middle"));
+    axisLabel(`The whole world, each year compared with ${tr.years[0]}`, b.x0 + 44, b.y0 + 6);
+    drawLine(years.map((yr, i) => [yr, f[i]]), x, y, "#ff7a2f");
+    drawLine(years.map((yr, i) => [yr, ind[i]]), x, y, "#64d2ff");
+    legendRow([["Wildfires", "#ff7a2f"], ["Factories and flares", "#64d2ff"]], b.x0 + 44, b.y1 + 52);
+  }
+
   /* ------------------------------------------------------------------ the viewer's place */
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
   const myName = () => (me ? me.name : HOME.name);
@@ -359,7 +424,7 @@ const Story = (() => {
   const n = (v, d = 1) => (v == null || !isFinite(v) ? "—" : v.toFixed(d));
   const pct = (v) => (v == null ? "—" : `${Math.round(v * 100)}%`);
   const stats = (items) => `<div class="story-stats">${items.map(([v, k]) => `<div><strong>${v}</strong><span>${k}</span></div>`).join("")}</div>`;
-  const team = [["BA", "Beshoy Abd Elmaseh"], ["BK", "Beshoy Kamal"], ["GE", "George Essam"], ["ME", "Mathew Emad"], ["SA", "Sondos Alsayed"]];
+  const team = [["BA", "Beshoy AbdelMaseeh"], ["BK", "Beshoy Kamal"], ["GE", "George Essam"], ["ME", "Mathew Emad"], ["SA", "Sondos Alsayed"]];
   const yearTotal = () => (data && data.annual ? data.annual.harmonized[data.annual.years.indexOf(data.year)] : null);
   const cov = () => data && data.validation && data.validation.length ? data.band_coverage : null;
   const APPS = [
@@ -369,7 +434,7 @@ const Story = (() => {
   ];
   const myStepList = () => (meAir && meAir.steps ? `<ol class="story-steps">${meAir.steps.slice(0, 3).map((s) => `<li><strong>${esc(s.title)}</strong><span>${esc(s.text)}</span></li>`).join("")}</ol>` : "");
 
-  const scenes = [
+  const MAIN = [
     { chapter: "Team FLARECRAFT presents GeoFlare", title: () => "Right now, <em>fires</em> are burning.",
       stats: () => (live ? stats([[fmt(live.fires), "fire hotspots seen in the last day"], [fmt(live.severe), "of them giving off 10 MW or more"]]) : ""),
       enter: () => { clearFigure(); unpoint(); fadeGlobe(1); layers({ live: live ? 1 : 0, archive: live ? 0 : 0.7, cx: 0.66, globe: 1, spin: 0.07 }); },
@@ -485,7 +550,7 @@ const Story = (() => {
       stats: () => `<div class="team">${team.map(([i, name]) => `<div class="member"><span class="avatar">${i}</span>${name}</div>`).join("")}</div>`,
       enter: () => { clearFigure(); fadeGlobe(1); pin = { ...HOME, lat: 27.18, lon: 31.18, name: "Assiut" }; layers({ archive: 0.45, pin: 1, globe: 1.1, cx: 0.66, spin: 0.05 }); rotateTo(HOME.lon, HOME.lat - 6, 1600); },
       lines: [
-        { mood: "laugh", say: "These are my humans: Beshoy A, Beshoy K, George, Mathew and Sondos. They built all of this for NASA Space Apps 2026, to show that science and fun aren't opposites." },
+        { mood: "laugh", say: "These are my humans: the two Beshoys, George, Mathew and Sondos. They built all of this for NASA Space Apps 2026, to show that science and fun aren't opposites." },
       ] },
     { chapter: "Your turn", title: () => "Three apps. <em>One planet.</em>",
       stats: () => `<div class="story-apps">${APPS.map((a) => `<button class="story-app ${a.view}" data-app="${a.view}"><strong>${a.name}</strong><span>${a.line}</span></button>`).join("")}</div>`,
@@ -494,6 +559,60 @@ const Story = (() => {
         { mood: "happy", say: "Where to first? Tap one of the three, or press <strong>→</strong> and I'll start you on the Dashboard. I'll come along and help." },
       ] },
   ];
+
+  const fx = (v, d = 1) => (v == null ? "—" : `${v.toFixed(d)}×`);
+  const POLLUTANTS = [["Black soot", "from flames that burn badly"], ["Nitrogen dioxide", "inflames the airways"], ["Sulphur dioxide", "from sour gas; tightens the lungs"], ["CO₂ and methane", "warm the planet"]];
+  const AIR = [
+    { chapter: "GeoFlare Air", title: () => "The other <em>glow</em>",
+      stats: () => (findings ? stats([[fmt(findings.proximity.sites), "places where satellites saw industrial heat again and again"]]) : ""),
+      enter: () => { clearFigure(); unpoint(); fadeGlobe(1); layers({ flares: 1, archive: 0.1, globe: 1.25, cx: 0.66, spin: 0 }); rotateTo(48, 27); },
+      lines: [
+        { mood: "wow", say: "Welcome to <strong>GeoFlare Air</strong>! Remember the blue dots that glow every single week? Let's find out what they mean for the air you breathe." },
+        { mood: "think", say: "Each one is a gas flare, a refinery or a steel plant. Fires come and go with the seasons. These keep burning, day and night.",
+          beat: () => point(48.5, 29.5, "Flares of the Gulf", 90) },
+      ] },
+    { chapter: "GeoFlare Air · What comes out", title: () => "What a flare <em>breathes out</em>",
+      panel: () => `<div class="story-panel"><div class="story-pollutants">${POLLUTANTS.map(([k, v]) => `<div><strong>${k}</strong><span>${v}</span></div>`).join("")}</div></div>`,
+      wire: () => {},
+      stats: () => "",
+      enter: () => { clearFigure(); fadeGlobe(1); layers({ flares: 1, globe: 1.7, cx: 0.66, spin: 0 }); rotateTo(6.8, 4.9).then(() => point(6.8, 4.9, "Niger Delta flares", 70)); },
+      lines: [
+        { mood: "worried", say: "A flare burns gas that an oil field can't use. When it burns badly, it puts out black soot, nitrogen dioxide and, from sour gas, sulphur dioxide. People living close by breathe all of it." },
+        { mood: "proud", say: "One honest twist: burning is still better than leaking. Raw methane warms the planet about <strong>80 times</strong> more than CO₂ over 20 years." },
+      ] },
+    { chapter: "GeoFlare Air · A question", title: () => "Are factory smoke and wildfires <em>related</em>?",
+      stats: () => (findings ? stats([[fx(findings.rhythm.fires_peak_to_trough), "wildfires, quietest to busiest week"], [fx(findings.rhythm.industry_peak_to_trough), "factories and flares"]]) : ""),
+      enter: () => { unpoint(); fadeGlobe(0.1); layers({ flares: 0.2 }); rhythmFigure(); },
+      lines: [
+        { mood: "think", say: "Here's a question worth checking: are factory smoke and forest fires connected? We tested it on 14 years of satellite data, three different ways." },
+        { mood: "think", say: () => (findings ? `Test one: their calendars. Fires swing <strong>${fx(findings.rhythm.fires_peak_to_trough)}</strong> through the year, factory heat only ${fx(findings.rhythm.industry_peak_to_trough)}. Both peak in the northern summer, but mostly because satellites see the north better then: clear, snow-free skies.` : "Test one: their calendars.") },
+      ] },
+    { chapter: "GeoFlare Air · Neighbours", title: () => "Fires near <em>factories</em>",
+      stats: () => (findings && findings.proximity.median_ratio ? stats([[fx(findings.proximity.median_ratio), `fires next to industry, median over ${findings.proximity.countries_compared} countries`], [`${Math.round(findings.proximity.share_countries_more_fire_near_industry * 100)}%`, "of countries had more fire near industry"]]) : ""),
+      enter: () => { fadeGlobe(0.1); proximityFigure(); },
+      lines: [
+        { mood: "wow", say: () => (findings && findings.proximity.median_ratio ? `Test two: their neighbourhoods. In ${findings.proximity.countries_compared} countries, places next to a factory or flare had <strong>${fx(findings.proximity.median_ratio)}</strong> the fires of other burning places nearby.` : "Test two: their neighbourhoods.") },
+        { mood: "think", say: "But being together isn't the same as one causing the other. Farms, roads and towns gather near industry too, and people start most fires." },
+      ] },
+    { chapter: "GeoFlare Air · The big test", title: () => "Do they <em>move together</em>?",
+      stats: () => (findings && findings.trends.world_change_correlation != null ? stats([[findings.trends.world_change_correlation.toFixed(2), "how closely yearly changes match (1 = always, 0 = never)"]]) : ""),
+      enter: () => { fadeGlobe(0.1); trendFigure(); },
+      lines: [
+        { mood: "think", say: () => (findings && findings.trends.world_change_correlation != null ? `Test three: when flaring went up, did fires go up? Mostly no. Year to year the match is just <strong>${findings.trends.world_change_correlation.toFixed(2)}</strong> worldwide, and ${findings.trends.median_country_correlation.toFixed(2)} in a typical country.` : "Test three: do they move together?") },
+        { mood: "proud", say: "So here's our answer: they share a season and often a neighbourhood, but one doesn't drive the other. They're two separate problems." },
+      ] },
+    { chapter: "GeoFlare Air · What connects them", title: () => "One thing they <em>share</em>: your lungs",
+      panel: () => `<div class="story-panel"><div class="story-chips"><button class="strong" id="story-check-air">Check the air where I live</button></div></div>`,
+      wire: (root) => root.querySelector("#story-check-air").addEventListener("click", (e) => { e.stopPropagation(); finish({ view: "air" }); }),
+      stats: () => "",
+      enter: () => { clearFigure(); unpoint(); fadeGlobe(1); layers({ live: live ? 0.9 : 0, archive: live ? 0 : 0.6, flares: 1, globe: 1.05, cx: 0.66, spin: 0.05 }); },
+      lines: [
+        { mood: "worried", say: "Here's what does connect them: the air. Smoke from a wildfire and soot from a flare end up in the same lungs." },
+        { mood: "happy", say: "So GeoFlare Air checks both wherever you live: the air right now, the flares and factories around you, and which way the wind blows. Let's check yours!" },
+      ] },
+  ];
+  let mode = "main";
+  const fallback = () => (mode === "air" ? { view: "air" } : { view: "dashboard" });
 
   /* ------------------------------------------------------------------ playing it */
   const val = (x) => (typeof x === "function" ? x() : x);
@@ -516,8 +635,9 @@ const Story = (() => {
     if (l.beat) l.beat();
     if (line > 0 && !s.wire) render(s);   // numbers can arrive late (live data); refresh them on each line
   }
+  let scenes = MAIN;
   function go(i, atLine = 0) {
-    if (i >= scenes.length) return finish({ view: "dashboard", tour: true });
+    if (i >= scenes.length) return finish(mode === "air" ? { view: "air" } : { view: "dashboard", tour: true });
     if (i < 0) return;
     if (i !== scene) {
       const prev = scenes[scene];
@@ -547,20 +667,24 @@ const Story = (() => {
     if (["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)) return;   // typing a town must not move the story
     if (["ArrowRight", " ", "Enter", "PageDown"].includes(e.key)) { e.preventDefault(); dialogue.advance(next); }
     else if (["ArrowLeft", "PageUp"].includes(e.key)) { e.preventDefault(); dialogue.finish(true); back(); }
-    else if (e.key === "Escape") finish({ view: "dashboard" });
+    else if (e.key === "Escape") finish(fallback());
   }
 
-  async function open(done) {
+  async function open(done, which = "main") {
     onDone = done;
+    mode = which;
+    scenes = which === "air" ? AIR : MAIN;
     $("story").hidden = false; $("story").style.opacity = 1;
     if (!dialogue) {
       dialogue = new Dialogue($("story-dlg"), { onNext: next, onBack: () => { dialogue.finish(true); back(); }, size: 112 });
       $("story-dlg").addEventListener("click", () => dialogue.advance(next));
-      $("story-dots").innerHTML = scenes.map(() => "<span></span>").join("");
-      document.querySelectorAll("#story-dots span").forEach((d, k) => d.addEventListener("click", (e) => { e.stopPropagation(); dialogue.finish(true); go(k); }));
-      $("story-skip").addEventListener("click", () => finish({ view: "dashboard" }));
+      $("story-skip").addEventListener("click", () => finish(fallback()));
       addEventListener("resize", () => { if (running) size(); });
     }
+    $("story-dots").innerHTML = scenes.map(() => "<span></span>").join("");
+    document.querySelectorAll("#story-dots span").forEach((d, k) => d.addEventListener("click", (e) => { e.stopPropagation(); dialogue.finish(true); go(k); }));
+    $("story-skip").textContent = which === "air" ? "Skip to GeoFlare Air" : "Skip to the app";
+    copy.dataset.html = "";
     size(); running = true; loop();
     if (!land) {
       const [intro, world] = await Promise.all([
@@ -576,6 +700,7 @@ const Story = (() => {
     grab("/api/live").then((v) => { live = v; });
     grab("/api/live/severity").then((v) => { severity = v; });
     grab("/api/outlook").then((v) => { outlook = v; });
+    if (!findings) findings = await grab("/api/findings");
     // Scenes with no interactive panel refresh their numbers when data lands.
     clearInterval(refreshTimer);
     refreshTimer = setInterval(() => { const s = scenes[scene]; if (running && s && !s.wire) render(s); }, 1500);
@@ -583,5 +708,5 @@ const Story = (() => {
     document.addEventListener("keydown", keys);
   }
 
-  return { open };
+  return { open, openAir: (done) => open(done, "air") };
 })();

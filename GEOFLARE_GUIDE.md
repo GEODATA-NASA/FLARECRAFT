@@ -24,7 +24,8 @@ None of the data is in git. Some files are bigger than GitHub allows, and all of
 | Trained model | GeoData | `modeling/artifacts/high_frp_classifier.joblib` | in git; retrain with `python -m modeling.train_model` |
 | FIRMS yearly country archives, about 9.6 GB | GeoFlare pipeline | `firms_archive/zips/` next to `geoflare/` (or `FIRMS_ARCHIVE_DIR`) | `python -m pipeline.download` |
 | Harmonized record, about 320 MB | GeoFlare | `geoflare/data/product/` (or `EMBER_DATA_DIR`) | `python -m pipeline.aggregate` then `python -m pipeline.build` |
-| Leaderboard | GeoFlare | `geoflare/data/product/rankings.json` | `python -m pipeline.rankings` (needs `cleaned_data/cleaned_master_fires.csv` and `geoflare/data/ref/countryInfo.txt` from [GeoNames](https://download.geonames.org/export/dump/countryInfo.txt)) |
+| Leaderboard | GeoFlare | `geoflare/data/product/rankings.json` | `python -m pipeline.rankings` (needs `cleaned_data/cleaned_master_fires.csv`; downloads `geoflare/data/ref/countryInfo.txt` from [GeoNames](https://download.geonames.org/export/dump/countryInfo.txt) by itself the first time) |
+| Fires vs factories findings | GeoFlare (Air story) | `geoflare/data/product/findings.json` | `python -m pipeline.findings` (needs only the harmonized record) |
 
 Live fires (NASA FIRMS), air quality, wind and place search (Open-Meteo) are fetched at run time and need internet access. Live fires are cached in `geoflare/data/live/`.
 
@@ -55,6 +56,7 @@ cd geoflare
 .venv\Scripts\python -m pipeline.aggregate
 .venv\Scripts\python -m pipeline.build
 .venv\Scripts\python -m pipeline.rankings
+.venv\Scripts\python -m pipeline.findings
 ```
 
 `python -m pipeline.run` does aggregate and build unattended, picking up each archive as it finishes downloading.
@@ -86,7 +88,7 @@ geoflare\start.cmd air        :: GeoFlare Air
 .venv\Scripts\python -m uvicorn api.main:app --host 127.0.0.1 --port 8010
 ```
 
-The apps are at http://127.0.0.1:8010/ (the story), `/dashboard`, `/fires` and `/air`. The classic map is at http://127.0.0.1:8000/. Neither server reloads code on its own, so restart it after changing Python files.
+The apps are at http://127.0.0.1:8010/ (the story), `/dashboard`, `/fires` and `/air`. The classic map is at http://127.0.0.1:8000/. Its "Show factories and gas flares" switch adds GeoFlare Air's sites, which needs GeoFlare running on 8010. Neither server reloads code on its own, so restart it after changing Python files.
 
 ---
 
@@ -97,7 +99,7 @@ The apps are at http://127.0.0.1:8010/ (the story), `/dashboard`, `/fires` and `
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 cd geoflare && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python -m pipeline.download && .venv/bin/python -m pipeline.aggregate \
-  && .venv/bin/python -m pipeline.build && .venv/bin/python -m pipeline.rankings
+  && .venv/bin/python -m pipeline.build && .venv/bin/python -m pipeline.rankings && .venv/bin/python -m pipeline.findings
 cd ..
 
 # every time: two terminals
@@ -135,6 +137,7 @@ docker compose run --rm -e FIRMS_ARCHIVE_DIR=/app/data/zips geoflare python -m p
 docker compose run --rm -e FIRMS_ARCHIVE_DIR=/app/data/zips geoflare python -m pipeline.aggregate
 docker compose run --rm geoflare python -m pipeline.build
 docker compose run --rm geoflare python -m pipeline.rankings
+docker compose run --rm geoflare python -m pipeline.findings
 ```
 
 Run GeoFlare's image on its own, without Compose:
@@ -214,6 +217,7 @@ Response, shortened:
 | `GET /api/air?lat=30.51&lon=47.81` | GeoFlare Air report: verdict, air quality and 36-hour forecast, wind, sites within 100 km, facts, precautions |
 | `GET /api/places?q=Basra` | Place search for the Air check |
 | `GET /api/rankings` | Leaderboard: fewest severe fires and least industrial heat per 1,000 km² |
+| `GET /api/findings` | Are factory and flare heat and wildfires related? Seasonal rhythm, fires near industry by country, and year-to-year co-movement, each with a plain-language verdict |
 | `/geodata/…` | Same-origin pass-through to GeoData (`health` and `api/v1/*` only), used by GeoFlare Fires |
 | `GET /health` | Service status |
 
@@ -250,3 +254,8 @@ Training settings are listed in the README section "Validation, early stopping a
 - **The map opens on different dates on different laptops.** Each machine shows its own data folders. Copy them across (see section 1).
 - **Port already in use.** Another copy is running. Stop it, or change `API_PORT` or `GEOFLARE_PORT`.
 - **Docker: GeoFlare starts, but the calendar is empty.** `geoflare/data/product` is missing. Build it (section 4) or copy it in.
+
+## 7. Notes on the data behind the maps
+
+- **The classic map's counts with the CSV backend.** If GeoData runs on `cleaned_data/fires_sample.csv`, it reads a random sample, 0.74% of the full file. Shares and rates, such as the share of severe fires, stay accurate. Counts are shown as estimates: for 25–31 Dec 2025 the sample gives about 540,700 detections against 530,155 in the full file (2% off), and 23.8% severe against 24.7%. With PostgreSQL, or with `fires_sample.csv` removed, the map counts every detection.
+- **Factories and wildfires.** `pipeline.findings` checks whether they're related. In the current record they share a season, mostly because satellites see the northern oil fields better in summer. Places next to industry burn more, about 1.6x in a typical country, but farms, roads and towns cluster there too. Year-to-year changes barely move together (r ≈ 0.2). The Air story presents these results with the same caveats.
