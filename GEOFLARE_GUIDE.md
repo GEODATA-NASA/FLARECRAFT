@@ -28,13 +28,45 @@ None of the data is in git. Some files are bigger than GitHub allows, and all of
 
 Live fires (NASA FIRMS), air quality, wind and place search (Open-Meteo) are fetched at run time and need internet access. Live fires are cached in `geoflare/data/live/`.
 
+**Preview data.** If `geoflare/data/product/report.json` does not exist yet, `geoflare\start.cmd` serves a small 2025-only preview from `geoflare/data/product-agg-dev` when that folder exists. Build it from the GeoData cleaned file with `python -m pipeline.dev_local` and then `python -m pipeline.build --source agg-dev --no-loyo`. The preview is for checking that the apps start, not for the 2003–2025 calendar.
+
 > **Same data on every machine.** The apps show whatever is in the local data folders. For example, if one laptop's archive ends on 31 December and another's on 17 January, their maps open on different weeks. For a demo, copy `cleaned_data/` and `geoflare/data/` from one machine to the others.
 
 ---
 
 ## 2. Native run (Windows)
 
-Requirements: Python 3.12 or newer (developed on 3.14) and Git. Run these once, from the repository root:
+Requirements: Python 3.12 or newer (developed on 3.14) and Git.
+
+### One-click scripts (recommended)
+
+Four scripts automate everything below. Each creates its virtual environment (`.venv`) if it is missing and runs `pip install -r requirements.txt` on every start, so the packages GeoFlare needs (including `duckdb`) are always present.
+
+| Script (from the repository root) | What it does |
+|---|---|
+| `start_all_master.cmd` | Everything, for a fresh clone: sets up the root `.venv`, runs `python main.py` (the GeoData pipeline), then calls `run_pipeline_and_servers.cmd` |
+| `run_pipeline_and_servers.cmd` | Sets up `geoflare\.venv`, runs `pipeline.download`, `aggregate`, `build` and `rankings` in order, and only if all four succeed calls `geoflare\start.cmd`. If a step fails it stops and does not start the servers |
+| `geoflare\start.cmd [dashboard\|fires\|air]` | Sets up `geoflare\.venv`, starts GeoData AI on port 8000 if it isn't running (it needs the root `.venv`), waits up to 90 seconds for it, starts GeoFlare on port 8010, and opens the browser |
+| `scripts\start_app.cmd` | GeoData AI only, on port 8000 (the classic map) |
+
+```text
+start_all_master.cmd
+ ├─ root .venv + requirements.txt
+ ├─ python main.py                         GeoData pipeline: weather → transform → load → train
+ └─ run_pipeline_and_servers.cmd
+     ├─ geoflare\.venv + geoflare\requirements.txt
+     ├─ pipeline.download → aggregate → build → rankings        GeoFlare data
+     └─ geoflare\start.cmd                 GeoData AI :8000 · GeoFlare :8010 · browser
+```
+
+- The first run is slow. The FIRMS archives are about 9.6 GB (the download is resumable), and `main.py` needs the FIRMS CSVs in `raw_data/` and a configured `.env` (see the README).
+- Keep the GeoFlare window open while you use the apps; closing it stops the server. GeoData AI runs in its own minimized window.
+- `start.cmd` uses `data\product` when `report.json` exists, and otherwise the 2025 preview (see section 1).
+- Use `run_pipeline_and_servers.cmd` when GeoData's pipeline has already run, and `geoflare\start.cmd` alone when GeoFlare's data is already built.
+
+### Step by step (manual)
+
+Run these once, from the repository root:
 
 ```bat
 :: GeoData AI
@@ -92,9 +124,14 @@ The apps are at http://127.0.0.1:8010/ (the story), `/dashboard`, `/fires` and `
 
 ## 3. Native run (macOS and Linux)
 
+The `.cmd` scripts are Windows-only. These commands do the same work as `start_all_master.cmd` and `geoflare\start.cmd`:
+
 ```bash
-# once
+# once: GeoData AI (needs raw_data/ and .env, see the README)
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+.venv/bin/python main.py
+
+# once: GeoFlare data (about 9.6 GB download, resumable)
 cd geoflare && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python -m pipeline.download && .venv/bin/python -m pipeline.aggregate \
   && .venv/bin/python -m pipeline.build && .venv/bin/python -m pipeline.rankings
@@ -249,4 +286,9 @@ Training settings are listed in the README section "Validation, early stopping a
 - **"The GeoData AI service is not running."** Start GeoData on port 8000, or set `GEODATA_API`.
 - **The map opens on different dates on different laptops.** Each machine shows its own data folders. Copy them across (see section 1).
 - **Port already in use.** Another copy is running. Stop it, or change `API_PORT` or `GEOFLARE_PORT`.
+- **`run_pipeline_and_servers.cmd` stops with "GeoFlare pipeline failed".** One of download, aggregate, build or rankings failed, so the servers were not started. Read the message above it and run the script again; the download resumes where it stopped.
+- **"No module named 'duckdb'".** GeoFlare's packages are not installed in `geoflare\.venv`. Run `geoflare\start.cmd` (it installs them) or `pip install -r requirements.txt` inside `geoflare\`.
+- **"GeoData AI service not found or its .venv is missing".** `start.cmd` starts GeoData with `.venv\Scripts\python.exe` in the GeoData folder. Create the root `.venv` with `start_all_master.cmd`, or by hand (the folder must be called `.venv`).
+- **"Full record not built yet - using the 2025 preview data".** `geoflare\data\product\report.json` is missing. Run the GeoFlare pipeline (section 2).
+- **The first start is slow.** `pip` checks the requirements on every start, and downloads them the first time.
 - **Docker: GeoFlare starts, but the calendar is empty.** `geoflare/data/product` is missing. Build it (section 4) or copy it in.
