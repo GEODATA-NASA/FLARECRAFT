@@ -1,6 +1,6 @@
 # 🌍 GeoData AI: Forest Fires & Climate Intelligence Pipeline
 
-> **GeoFlare**, the NASA Space Apps 2026 app by Team FLARECRAFT, lives in [`geoflare/`](./geoflare). It has three parts: GeoFlare Dashboard, GeoFlare Fires and GeoFlare Air. This GeoData service supplies its severity model, fire archive and assistant. To run both natively or with Docker, and for every API endpoint, see **[GEOFLARE_GUIDE.md](./GEOFLARE_GUIDE.md)**.
+> **GeoFlare**, the NASA Space Apps 2026 app by Team FLARECRAFT, lives in [`geoflare/`](./geoflare). It has three parts: GeoFlare Dashboard, GeoFlare Fires and GeoFlare Air. This GeoData service supplies its severity model, fire archive and assistant. To run both natively or with Docker, and for every API endpoint, see **[GEOFLARE_GUIDE.md](./GEOFLARE_GUIDE.md)**. On Windows, double-clicking `start_all_master.cmd` runs everything.
 
 An end-to-end wildfire analytics platform built on open NASA data. It ingests satellite fire detections (NASA FIRMS: MODIS and VIIRS) together with daily weather (NASA POWER), cleans and stores them in PostgreSQL/PostGIS, trains a machine-learning model that estimates how **severe** a detected fire is, and serves everything through a FastAPI service, an interactive Leaflet map, and a natural-language "ask the data" assistant powered by Claude.
 
@@ -25,6 +25,7 @@ An end-to-end wildfire analytics platform built on open NASA data. It ingests sa
 - [GeoAI Model](#-geoai-model)
 - [API (FastAPI)](#-api-fastapi)
 - [Frontend (Leaflet map)](#️-frontend-leaflet-map)
+- [GeoFlare (Dashboard, Fires, Air)](#-geoflare-dashboard-fires-air)
 - [Ask the Data (assistant)](#-ask-the-data-assistant)
 - [Docker](#-docker)
 - [Scheduling and Airflow](#️-scheduling-and-airflow)
@@ -58,7 +59,9 @@ An end-to-end wildfire analytics platform built on open NASA data. It ingests sa
 - **Orchestration**: an Airflow DAG with retries, a dependency-free interval scheduler, and a Docker Compose setup.
 - **Structured logging** for the pipeline, the API, and the scheduler.
 - **CI/CD**: GitHub Actions runs the tests, builds the Docker image, and publishes it to GitHub Container Registry on every push to `main`.
-- **Windows one-click launcher** (`scripts/start_app.cmd`) that starts the API and opens the map.
+- **Fire Risk Score (0–100)**: a calibrated score with Low, Medium, High, and Extreme levels, a recall-first decision threshold, handling of blank inputs, and SHAP explanations on top of the CatBoost model.
+- **GeoFlare**: a second service (port 8010) with three apps built for NASA Space Apps 2026 by Team FLARECRAFT: a harmonized MODIS + VIIRS fire calendar since 2003, live fires scored by this service, and air quality near gas flares and factories.
+- **Windows automation scripts**: `scripts\start_app.cmd` (GeoData AI only), `geoflare\start.cmd` (both servers), `run_pipeline_and_servers.cmd` (GeoFlare pipeline, then both servers), and `start_all_master.cmd` (everything from a fresh clone). Each creates its virtual environment and installs the requirements when needed.
 
 ---
 
@@ -66,7 +69,7 @@ An end-to-end wildfire analytics platform built on open NASA data. It ingests sa
 
 | Layer | Tools |
 |---|---|
-| Language | Python 3.10 – 3.12 |
+| Language | Python 3.10 or newer (the Docker images use 3.12) |
 | ETL / Processing | Pandas, NumPy, Requests |
 | Database | PostgreSQL, PostGIS, SQLAlchemy, Psycopg2 |
 | Machine Learning | CatBoost (production model), XGBoost and scikit-learn (model comparison, BallTree matching), joblib |
@@ -111,29 +114,47 @@ An end-to-end wildfire analytics platform built on open NASA data. It ingests sa
 
 The pipeline stages are coordinated by `main.py` (or by the Airflow DAG), and the API reads the same database and the same model artifact the pipeline produces.
 
+### GeoFlare on top of GeoData AI
+
+GeoFlare is a separate service in `geoflare/` that sits next to the GeoData API. It has its own data pipeline and calls GeoData for every severity score.
+
+```text
+ Browser ──▶ GeoFlare  (port 8010)  ── /geodata/ proxy ──▶  GeoData AI API  (port 8000)
+              Dashboard · Fires · Air                         severity model · archive map · assistant
+                 │
+                 ├─ harmonized MODIS + VIIRS record  (DuckDB over Parquet, geoflare/data/)
+                 ├─ live fires                       (NASA FIRMS public feed)
+                 └─ air quality and wind             (Open-Meteo)
+```
+
+GeoFlare still opens when GeoData is not running, but the severity scores and the 4-week outlook then report the service as offline. See [GeoFlare](#-geoflare-dashboard-fires-air) below and [GEOFLARE_GUIDE.md](./GEOFLARE_GUIDE.md).
+
 ---
 
 ## 📂 Project Structure
 
 ```text
 GeoData-AI-Forest-Fires-Climate-Intelligence-Pipeline
-├─ main.py                  # Pipeline orchestrator: weather → transform → load → train
+├─ main.py                  # GeoData pipeline orchestrator: weather → transform → load → train
 ├─ config.py                # Loads .env; DB settings, data directories, pipeline logging
 ├─ scheduler.py             # Dependency-free interval scheduler that reruns main.py
 ├─ requirements.txt         # Runtime dependencies
 ├─ requirements-dev.txt     # Adds pytest and httpx
 ├─ Dockerfile               # One image for the API (default) and the pipeline
-├─ docker-compose.yml       # PostGIS + API, plus pipeline / scheduler / airflow profiles
+├─ docker-compose.yml       # PostGIS + API + GeoFlare, plus pipeline / scheduler / airflow profiles
 ├─ .env.example             # Template for every environment variable
 ├─ .dockerignore            # Keeps secrets (.env), data, logs, virtual environments, and Git history out of the image
 ├─ LICENSE                  # MIT
+├─ GEOFLARE_GUIDE.md        # Running guide and API reference for GeoFlare (native, Docker, endpoints)
 │
+├─ start_all_master.cmd             # Windows: GeoData pipeline, then run_pipeline_and_servers.cmd
+├─ run_pipeline_and_servers.cmd     # Windows: GeoFlare pipeline, then geoflare\start.cmd
+├─ scripts/
+│  ├─ start_app.cmd         # Windows one-click launcher: GeoData AI only (API + map on port 8000)
+│  └─ geodata.ico           # Icon for a desktop shortcut to the launcher
 ├─ .github/
 │  └─ workflows/
 │     └─ ci.yml             # CI/CD: test → build → publish image to GHCR
-├─ scripts/
-│  ├─ start_app.cmd         # Windows one-click launcher: starts the API and opens the map
-│  └─ geodata.ico           # Icon for a desktop shortcut to the launcher
 │
 ├─ raw_data/                # (not in Git) FIRMS archives and the downloaded NASA POWER weather
 │  └─ power_cache/          #   Cached POWER tile responses (created by the extractor)
@@ -150,11 +171,13 @@ GeoData-AI-Forest-Fires-Climate-Intelligence-Pipeline
 │  └─ load.py               # Load: bulk upload to PostgreSQL through staging tables
 ├─ modeling/
 │  ├─ train_model.py        # Builds the training set, trains and evaluates the CatBoost classifier
+│  ├─ features.py           # Derived features, shared by training and serving
+│  ├─ risk.py               # Fire Risk Score: isotonic calibration and Low/Medium/High/Extreme levels
 │  ├─ compare_models.py     # Benchmarks Random Forest, XGBoost, and CatBoost with cross-validation
 │  └─ artifacts/
 │     └─ high_frp_classifier.joblib   # Trained pipeline + metadata (committed)
 │
-├─ api/                     # FastAPI service
+├─ api/                     # GeoData AI FastAPI service (port 8000)
 │  ├─ main.py               # App factory (uvicorn api.main:app), lifespan, routers, static frontend
 │  ├─ settings.py           # API settings from environment variables
 │  ├─ deps.py               # Dependencies and the shared fire-filter parser
@@ -172,12 +195,42 @@ GeoData-AI-Forest-Fires-Climate-Intelligence-Pipeline
 │  ├─ tools_make_sample.py  # Builds a random sample CSV for the CSV backend
 │  └─ tools_create_indexes.py   # Creates the PostgreSQL indexes the API relies on
 │
-├─ frontend/                # Leaflet map UI: index.html, app.js, style.css
+├─ frontend/                # Classic Leaflet map UI: index.html, app.js, style.css
 ├─ orchestration/
 │  ├─ tasks.py              # Pipeline stages as plain task functions
 │  ├─ dags/geodata_pipeline.py  # Airflow DAG
 │  └─ airflow.Dockerfile    # Airflow image with the project's dependencies
-└─ tests/                   # pytest suite (API, assistant, SQL repository, loader, DAG, weather download)
+│
+├─ geoflare/                # GeoFlare: Dashboard, Fires, and Air (port 8010); see geoflare/README.md
+│  ├─ README.md             # What GeoFlare is, method, validation, and how to run it
+│  ├─ start.cmd             # Windows: starts GeoData AI (8000) and GeoFlare (8010), opens the browser
+│  ├─ Dockerfile            # GeoFlare image
+│  ├─ requirements.txt      # GeoFlare dependencies (includes duckdb), separate from the root file
+│  ├─ pipeline/             # Data pipeline for the harmonized record
+│  │  ├─ config.py          #   Shared paths and constants (0.25° grid, sensor years)
+│  │  ├─ download.py        #   Resumable, parallel download of the FIRMS yearly archives
+│  │  ├─ aggregate.py       #   Yearly zips → daily 0.25° cell counts (Parquet)
+│  │  ├─ weekly.py          #   Cell × week tables per sensor (DuckDB)
+│  │  ├─ harmonize.py       #   MODIS → VIIRS-equivalent model, validation, uncertainty bands
+│  │  ├─ build.py           #   Leave-one-year-out validation, final model, publishes the record
+│  │  ├─ rankings.py        #   Country leaderboard (severe fires and industrial heat per 1,000 km²)
+│  │  ├─ run.py             #   Unattended aggregate + build as archives finish downloading
+│  │  └─ dev_local.py       #   Dev only: aggregates the cleaned 2025 file for a quick preview
+│  ├─ api/                  # GeoFlare FastAPI service
+│  │  ├─ main.py            #   App and endpoints (calendar, map, live, air, rankings, /geodata/ proxy)
+│  │  ├─ analytics.py       #   Calendar, fire season, anomalies, trends, 4-week outlook
+│  │  ├─ live.py            #   Live FIRMS fires, severity from GeoData, outlook
+│  │  ├─ air.py             #   Air verdict near industrial heat sites
+│  │  └─ store.py           #   Read access to the harmonized record (DuckDB over Parquet)
+│  ├─ web/                  # Browser UI: index.html, app.js (Dashboard), fires.js + fires.css (Fires),
+│  │                        #   air.js (Air), intro.js + flick.js (story and mascot), ui.js, style.css
+│  └─ data/                 # (not in Git) agg/, weekly/, product/, ref/, live/ built by the pipeline
+│
+└─ tests/                   # pytest suite
+   ├─ conftest.py           #   Shared fixtures (tiny fire and weather dataset)
+   ├─ test_api.py · test_assistant.py · test_degraded.py
+   ├─ test_sql_repository.py · test_load.py · test_weather_download.py · test_orchestration.py
+   └─ test_blank_inputs.py · test_model_upgrades.py · test_risk_score.py
 ```
 
 ---
@@ -186,7 +239,7 @@ GeoData-AI-Forest-Fires-Climate-Intelligence-Pipeline
 
 ### Prerequisites
 
-- Python 3.10 – 3.12
+- Python 3.10 or newer
 - PostgreSQL 14+ with the PostGIS extension (or use the Docker setup, which provides it)
 - The NASA FIRMS archive CSV files (see step 3)
 - Internet access for the NASA POWER API
@@ -198,8 +251,8 @@ GeoData-AI-Forest-Fires-Climate-Intelligence-Pipeline
 git clone https://github.com/GEODATA-NASA/GeoData-AI-Forest-Fires-Climate-Intelligence-Pipeline.git
 cd GeoData-AI-Forest-Fires-Climate-Intelligence-Pipeline
 
-python -m venv venv
-source venv/bin/activate        # Windows: venv\Scripts\activate
+python -m venv .venv
+source .venv/bin/activate       # Windows: .venv\Scripts\activate
 
 pip install -r requirements.txt   # use requirements-dev.txt to also run the tests
 ```
@@ -263,7 +316,38 @@ uvicorn api.main:app --reload
 | `http://localhost:8000/redoc` | ReDoc API reference |
 | `http://localhost:8000/health` | Service, database, and model status |
 
-**Windows shortcut:** double-click `scripts/start_app.cmd`. On the first run it creates a `.venv`, installs `requirements.txt`, then starts the API on `127.0.0.1:8000` and opens the browser once the data has loaded (about 20 seconds). If the app is already running it only opens the browser. Set `GEODATA_PORT` to use another port or `GEODATA_NO_BROWSER=1` to skip opening the browser. Close the window to stop the server. Python 3.10 or newer must be installed.
+### Windows one-click scripts
+
+On Windows, four `.cmd` scripts automate the steps above. Each one creates its virtual environment (`.venv`) and runs `pip install -r requirements.txt` when needed, so modules such as `duckdb` are always present. Python 3.10 or newer must be on the `PATH`.
+
+| Script | Where | What it does |
+|---|---|---|
+| `scripts\start_app.cmd` | GeoData AI only | Sets up `.venv` on the first run, starts the API on `127.0.0.1:8000`, and opens the map once the data has loaded (about 20 seconds). If the app is already running it only opens the browser. Set `GEODATA_PORT` to use another port or `GEODATA_NO_BROWSER=1` to skip the browser. |
+| `geoflare\start.cmd [dashboard\|fires\|air]` | Both servers | Sets up `geoflare\.venv` and installs `geoflare\requirements.txt`, starts GeoData AI on port 8000 in a minimized window if it is not already running (it needs the root `.venv`), waits up to 90 seconds for it, then starts GeoFlare on port 8010 and opens the browser. Uses `geoflare\data\product` when `report.json` exists, otherwise the small 2025 preview in `data\product-agg-dev`. |
+| `run_pipeline_and_servers.cmd` | GeoFlare data, then servers | Sets up `geoflare\.venv`, runs `pipeline.download`, `pipeline.aggregate`, `pipeline.build`, and `pipeline.rankings` in order, and only if all four succeed calls `geoflare\start.cmd`. If a step fails it stops with a message and does not start the servers. |
+| `start_all_master.cmd` | Everything | Sets up the root `.venv`, runs `python main.py` (the GeoData pipeline), then calls `run_pipeline_and_servers.cmd`. Use it for a fresh clone. |
+
+```text
+start_all_master.cmd
+ ├─ root .venv + requirements.txt
+ ├─ python main.py                         GeoData pipeline: weather → transform → load → train
+ └─ run_pipeline_and_servers.cmd
+     ├─ geoflare\.venv + geoflare\requirements.txt
+     ├─ pipeline.download → aggregate → build → rankings        GeoFlare data
+     └─ geoflare\start.cmd                 GeoData AI :8000 · GeoFlare :8010 · browser
+```
+
+Things to know:
+
+- The first run is slow: GeoFlare downloads about 9.6 GB of FIRMS yearly archives (resumable), and `main.py` needs the FIRMS CSVs in `raw_data/` and a configured `.env`. Later runs reuse what is already built.
+- `pip` checks the requirements on every start, which adds a few seconds.
+- Keep the GeoFlare window open while you use the apps; closing it stops the server. GeoData AI runs in its own minimized window.
+- The scripts use a virtual environment named `.venv`. `geoflare\start.cmd` looks for `.venv\Scripts\python.exe` in the GeoData folder to start the API.
+- On macOS and Linux there are no `.cmd` scripts; the equivalent commands are in [GEOFLARE_GUIDE.md](./GEOFLARE_GUIDE.md#3-native-run-macos-and-linux).
+
+### 7. Optional: GeoFlare
+
+GeoFlare needs its own data, built by its pipeline (see [GeoFlare](#-geoflare-dashboard-fires-air)). With Docker: `docker compose up -d db api geoflare`.
 
 ---
 
@@ -585,14 +669,34 @@ Details:
 
 ---
 
+## 🔥 GeoFlare (Dashboard, Fires, Air)
+
+GeoFlare is the NASA Space Apps 2026 app by Team FLARECRAFT (challenge: *Harmonization of MODIS and VIIRS Hot Spots*). It lives in [`geoflare/`](./geoflare) and runs as its own service on port 8010, next to GeoData AI on port 8000.
+
+| App | What it does |
+|---|---|
+| **Dashboard** | A burning-activity calendar for any country or drawn area since 2003, built from a harmonized MODIS + VIIRS record, with fire season, unusual weeks, long-term trends, a 4-week outlook, live fires, and a country leaderboard |
+| **Fires** | Scores today's fires with this repository's CatBoost model (Fire Risk Score), grades the scores against the fire power the satellites measured, and rebuilds the archive map with the data assistant |
+| **Air** | Joins nearby gas-flare and factory heat sites, live air quality, and wind into a verdict and precautions for any place |
+
+**Why harmonize.** VIIRS (375 m pixels) records about 4.5× more detections than MODIS (1 km pixels) for the same fires, so a stitched record shows a false jump in 2012. GeoFlare learns, cell by cell and week by week, how many detections VIIRS would have made from what MODIS saw, and reconstructs 2003–2011 in VIIRS units with uncertainty bands.
+
+**Validation** (leave one year out, 14 held-out years): the median monthly error by region (MdAPE, median absolute percentage error) is 33%, against 35% for a single global conversion factor, and the model wins in 12 of the 14 years. The year-level R² on log counts is 0.94, against 0.91. 80% of true values fall inside the 80% uncertainty bands. The gain over a single factor is real but modest; the larger value is the per-place calendar with honest ranges.
+
+**Running it.** On Windows, `start_all_master.cmd` or `run_pipeline_and_servers.cmd` builds the data and starts both servers (see [Windows one-click scripts](#windows-one-click-scripts)). The generated data (about 9.6 GB of archives and a 320 MB harmonized record) is not in Git.
+
+For the method, the data sources, and the limits, read [geoflare/README.md](./geoflare/README.md). For running natively or in Docker, the full endpoint list for both services, and settings, read [GEOFLARE_GUIDE.md](./GEOFLARE_GUIDE.md).
+
+---
+
 ## 🐳 Docker
 
-One image serves both the API (default command) and the pipeline. The image runs as a non-root user and has a health check on `/health`.
+One image (`geodata-ai`) serves both the API (default command) and the pipeline. The image runs as a non-root user and has a health check on `/health`. GeoFlare has its own image, built from `geoflare/Dockerfile`.
 
 ```bash
 cp .env.example .env            # set DB_PASSWORD (required by Compose)
 
-docker compose up -d                       # PostGIS + API (the API falls back to CSV until data is loaded)
+docker compose up -d                       # PostGIS + API + GeoFlare (the API falls back to CSV until data is loaded)
 docker compose run --rm pipeline           # one full run: extract → transform → load → train
 docker compose --profile scheduled up -d   # also start the scheduler that reruns the pipeline periodically
 docker compose --profile airflow up -d     # Airflow UI at http://localhost:8080
@@ -602,11 +706,12 @@ docker compose --profile airflow up -d     # Airflow UI at http://localhost:8080
 |---|---|---|---|
 | `db` | `postgis/postgis:16-3.4` | always | PostgreSQL + PostGIS with a persistent volume |
 | `api` | `geodata-ai` | always | FastAPI service on `API_PORT` (default 8000) |
+| `geoflare` | `geoflare` | always | GeoFlare on `GEOFLARE_PORT` (default 8010); reads `./geoflare/data` and calls the `api` service |
 | `pipeline` | `geodata-ai` | `pipeline` | One-shot `python main.py` |
 | `scheduler` | `geodata-ai` | `scheduled` | `python scheduler.py` |
 | `airflow` | `geodata-airflow` | `airflow` | Airflow standalone with the project DAG |
 
-Put the FIRMS archives in `./raw_data` before running the pipeline. `raw_data`, `cleaned_data`, `logs`, and `modeling/artifacts` are mounted as volumes, so data and the trained model survive container rebuilds.
+Put the FIRMS archives in `./raw_data` before running the pipeline. `raw_data`, `cleaned_data`, `logs`, and `modeling/artifacts` are mounted as volumes, so data and the trained model survive container rebuilds. GeoFlare mounts `./geoflare/data` (read-write) and `./cleaned_data` (read-only); it shows an empty calendar until its data is built (see [GEOFLARE_GUIDE.md](./GEOFLARE_GUIDE.md#4-docker)).
 
 ---
 
@@ -654,9 +759,10 @@ Everything is configured through environment variables (loaded from `.env`). `.e
 | Database | `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`, `DB_SCHEMA` |
 | Data locations | `RAW_DATA_DIR`, `CLEANED_DATA_DIR` |
 | Weather download | `WEATHER_COVERAGE`, `WEATHER_GRID_LAT_STEP`, `WEATHER_GRID_LON_STEP`, `WEATHER_REQUEST_PAUSE`, `WEATHER_START`, `WEATHER_END`, `WEATHER_LATITUDE`, `WEATHER_LONGITUDE` |
-| Modeling | `HIGH_FRP_THRESHOLD`, `MAX_WEATHER_DISTANCE_KM`, `REQUIRE_WEATHER_MATCH`, `TRAINING_SOURCE`, `MAX_TRAINING_ROWS`, `MODEL_ARTIFACT_PATH`, `FORCE_RETRAIN` |
+| Modeling | `HIGH_FRP_THRESHOLD`, `MAX_WEATHER_DISTANCE_KM`, `REQUIRE_WEATHER_MATCH`, `TRAINING_SOURCE`, `MAX_TRAINING_ROWS`, `MODEL_ARTIFACT_PATH`, `FORCE_RETRAIN`, plus the CatBoost and calibration settings listed under [Training options](#training-options) |
 | API | `DATA_BACKEND`, `MODEL_PATH`, `DECISION_THRESHOLD`, `CORS_ORIGINS`, `API_MAX_GEOJSON_FEATURES`, `API_CACHE_TTL_SECONDS`, `CSV_MAX_ROWS`, `FIRES_SAMPLE_FILE`, `SERVE_FRONTEND`, `API_LOG_FILE`, `LOG_LEVEL` |
 | Assistant | `ANTHROPIC_API_KEY`, `ASSISTANT_ENABLED`, `ASSISTANT_MODEL`, `ASSISTANT_EFFORT`, `ASSISTANT_MAX_ROUNDS`, `ASSISTANT_FALLBACKS` |
+| GeoFlare | `GEODATA_API`, `EMBER_DATA_DIR`, `EMBER_PRODUCT`, `EMBER_PREFETCH`, `FIRMS_ARCHIVE_DIR`, `GEOFLARE_PORT` (defaults in [GEOFLARE_GUIDE.md](./GEOFLARE_GUIDE.md#53-settings)) |
 | Docker and scheduling | `API_PORT`, `DB_PORT_HOST`, `PIPELINE_INTERVAL_HOURS`, `PIPELINE_RUN_ON_START`, `GEODATA_SCHEDULE`, `GEODATA_API_URL`, `AIRFLOW_PORT`, `AIRFLOW_UID` |
 
 Never commit `.env`; it is listed in `.gitignore` together with `raw_data/`, `cleaned_data/`, and `logs/`.
@@ -692,6 +798,9 @@ The suite runs against a tiny fire and weather dataset served through the CSV ba
 | `tests/test_sql_repository.py` | The PostgreSQL repository's filters, pagination, statistics, and weather reads |
 | `tests/test_load.py` | Staging-table loading, skip logic, reload on changed weather, crash safety |
 | `tests/test_weather_download.py` | Grid footprint, tile alignment, year chunks, parameter validation |
+| `tests/test_blank_inputs.py` | Blanked-input training copies and the blank patterns |
+| `tests/test_model_upgrades.py` | Derived features (NaN-safe, same code in training and serving), the saved decision threshold, spatial groups, and SHAP in the model info |
+| `tests/test_risk_score.py` | Fire Risk Score calibration and the Low / Medium / High / Extreme levels |
 | `tests/test_orchestration.py` | Task functions, API refresh behaviour, and the Airflow DAG structure (needs Airflow installed) |
 
 ---
@@ -778,7 +887,10 @@ Or ask the running API: `curl http://localhost:8000/health`.
 | A retrained model or new CSV fire data is not served | Restart the API; the model and CSV fires are loaded at startup |
 | Leftover `tmp*.csv` files in `cleaned_data/` | An earlier run was interrupted; they are safe to delete (final files are replaced only after a run completes) |
 | `/api/v1/ask` returns `503` | `ANTHROPIC_API_KEY` is missing or `ASSISTANT_ENABLED=0`; see `/api/v1/ask/status` |
-| Package install fails | Use Python 3.10 – 3.12 and a fresh virtual environment |
+| Package install fails | Use a supported Python (3.10 or newer; 3.12 matches the Docker images) and a fresh virtual environment |
+| `run_pipeline_and_servers.cmd` stops with "GeoFlare pipeline failed" | One of download, aggregate, build, or rankings failed and the servers were not started. Read the message above it and run the script again; the download resumes |
+| `ModuleNotFoundError: No module named 'duckdb'` | GeoFlare's requirements are not installed in `geoflare\.venv`. Run `geoflare\start.cmd` (it installs them) or `pip install -r requirements.txt` inside `geoflare\` |
+| GeoFlare says the GeoData AI service is not running | Start GeoData on port 8000 (`scripts\start_app.cmd`), or set `GEODATA_API`. `geoflare\start.cmd` can only start it when the GeoData folder has a `.venv` |
 | Unclear failure | Check `logs/pipeline.log` (pipeline) or `logs/api.log` (API) |
 
 ---
@@ -824,7 +936,9 @@ Open items from an independent code review of commit `7315dcc` (6 November 2026)
 - [x] Scheduling with `scheduler.py` and an Airflow DAG
 - [x] Automated test suite
 - [x] CI/CD with GitHub Actions: tests, Docker build, and image publishing to GHCR
-- [x] Windows one-click launcher
+- [x] Windows automation scripts that set up virtual environments and start the servers
+- [x] Model upgrades: blank-input training, derived features, spatial cross-validation, recall-first threshold, SHAP, and the calibrated Fire Risk Score
+- [x] GeoFlare: harmonized MODIS + VIIRS calendar, live fires with severity scores, and air quality near industry
 
 **Next steps**
 
@@ -833,7 +947,7 @@ Open items from an independent code review of commit `7315dcc` (6 November 2026)
 - [ ] Address the open items listed under [Known Limitations](#️-known-limitations), starting with API authentication
 - [ ] Automated deployment step (for example to a cloud host) after the image is published
 - [ ] Authentication and rate limiting for the API, especially `/api/v1/ask`
-- [ ] Model improvements: try gradient boosting and richer weather features, since weather currently contributes modestly to the score
+- [ ] Model improvements: multi-day weather trends and a fire-weather index, which need more than one weather lookup per fire at serving time (every weather input is under 1% of SHAP importance today)
 - [ ] Train on a larger share of the data (raise `MAX_TRAINING_ROWS`) and track metrics across retrains
 
 **Future ideas**
@@ -855,6 +969,7 @@ Open items from an independent code review of commit `7315dcc` (6 November 2026)
 | Severity scoring API, interactive map, and natural-language assistant | API keys, authentication, rate limiting, and usage metering |
 | Docker, Airflow, and CI/CD for repeatable deployment | Multi-tenant isolation, monitoring, and a service-level agreement |
 | CatBoost severity model, benchmarked against Random Forest and XGBoost (cross-validated ROC-AUC about 0.90) | A fire-occurrence or risk model and validation against customer data |
+| GeoFlare apps (Dashboard, Fires, Air) on top of the API, a NASA Space Apps 2026 prototype | Real users, a hosted deployment, and support |
 | Roadmap item: Power BI dashboard | Power BI connectors and report templates |
 
 ### Value proposition
@@ -934,196 +1049,3 @@ Contributions, ideas, and discussions are welcome!
 If you find it useful, please ⭐ the repository or buy us a coffee! 🙏
 
 [![Buy Me A Coffee](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/george_samer)
-
-```
-GEODATA
-├─ .dockerignore
-├─ api
-│  ├─ assistant
-│  │  ├─ knowledge.py
-│  │  ├─ service.py
-│  │  ├─ tools.py
-│  │  └─ __init__.py
-│  ├─ deps.py
-│  ├─ filters.py
-│  ├─ logging_config.py
-│  ├─ main.py
-│  ├─ predictor.py
-│  ├─ repositories
-│  │  ├─ base.py
-│  │  ├─ csv_backend.py
-│  │  ├─ postgres.py
-│  │  └─ __init__.py
-│  ├─ routers
-│  │  ├─ assistant.py
-│  │  ├─ fires.py
-│  │  ├─ health.py
-│  │  ├─ predict.py
-│  │  ├─ weather.py
-│  │  └─ __init__.py
-│  ├─ runtime.py
-│  ├─ schemas.py
-│  ├─ serialization.py
-│  ├─ settings.py
-│  ├─ tools_create_indexes.py
-│  ├─ tools_make_sample.py
-│  ├─ version.py
-│  ├─ weather_index.py
-│  └─ __init__.py
-├─ config.py
-├─ docker-compose.yml
-├─ Dockerfile
-├─ frontend
-│  ├─ app.js
-│  ├─ index.html
-│  └─ style.css
-├─ geoflare
-│  ├─ .dockerignore
-│  ├─ api
-│  │  ├─ air.py
-│  │  ├─ analytics.py
-│  │  ├─ live.py
-│  │  ├─ main.py
-│  │  ├─ store.py
-│  │  └─ __init__.py
-│  ├─ data
-│  │  ├─ agg
-│  │  │  ├─ modis
-│  │  │  │  ├─ 2000.parquet
-│  │  │  │  ├─ 2001.parquet
-│  │  │  │  ├─ 2002.parquet
-│  │  │  │  ├─ 2003.parquet
-│  │  │  │  ├─ 2004.parquet
-│  │  │  │  ├─ 2005.parquet
-│  │  │  │  ├─ 2006.parquet
-│  │  │  │  ├─ 2007.parquet
-│  │  │  │  ├─ 2008.parquet
-│  │  │  │  ├─ 2009.parquet
-│  │  │  │  ├─ 2010.parquet
-│  │  │  │  ├─ 2011.parquet
-│  │  │  │  ├─ 2012.parquet
-│  │  │  │  ├─ 2013.parquet
-│  │  │  │  ├─ 2014.parquet
-│  │  │  │  ├─ 2015.parquet
-│  │  │  │  ├─ 2016.parquet
-│  │  │  │  ├─ 2017.parquet
-│  │  │  │  ├─ 2018.parquet
-│  │  │  │  ├─ 2019.parquet
-│  │  │  │  ├─ 2020.parquet
-│  │  │  │  ├─ 2021.parquet
-│  │  │  │  ├─ 2022.parquet
-│  │  │  │  ├─ 2023.parquet
-│  │  │  │  ├─ 2024.parquet
-│  │  │  │  └─ 2025.parquet
-│  │  │  ├─ viirs-jpss1
-│  │  │  │  ├─ 2018.parquet
-│  │  │  │  ├─ 2019.parquet
-│  │  │  │  ├─ 2020.parquet
-│  │  │  │  ├─ 2021.parquet
-│  │  │  │  ├─ 2022.parquet
-│  │  │  │  ├─ 2023.parquet
-│  │  │  │  ├─ 2024.parquet
-│  │  │  │  └─ 2025.parquet
-│  │  │  └─ viirs-snpp
-│  │  │     ├─ 2012.parquet
-│  │  │     ├─ 2013.parquet
-│  │  │     ├─ 2014.parquet
-│  │  │     ├─ 2015.parquet
-│  │  │     ├─ 2016.parquet
-│  │  │     ├─ 2017.parquet
-│  │  │     ├─ 2018.parquet
-│  │  │     ├─ 2019.parquet
-│  │  │     ├─ 2020.parquet
-│  │  │     ├─ 2021.parquet
-│  │  │     ├─ 2022.parquet
-│  │  │     ├─ 2023.parquet
-│  │  │     ├─ 2024.parquet
-│  │  │     └─ 2025.parquet
-│  │  ├─ live
-│  │  │  └─ 24h.parquet
-│  │  ├─ product
-│  │  │  ├─ cells.parquet
-│  │  │  ├─ cellweek.parquet
-│  │  │  ├─ final_model.joblib
-│  │  │  ├─ rankings.json
-│  │  │  └─ report.json
-│  │  ├─ ref
-│  │  │  └─ countryInfo.txt
-│  │  └─ weekly
-│  │     └─ agg
-│  │        ├─ modis.parquet
-│  │        ├─ viirs-jpss1.parquet
-│  │        └─ viirs-snpp.parquet
-│  ├─ Dockerfile
-│  ├─ pipeline
-│  │  ├─ aggregate.py
-│  │  ├─ build.py
-│  │  ├─ config.py
-│  │  ├─ dev_local.py
-│  │  ├─ download.py
-│  │  ├─ harmonize.py
-│  │  ├─ rankings.py
-│  │  ├─ run.py
-│  │  ├─ weekly.py
-│  │  └─ __init__.py
-│  ├─ README.md
-│  ├─ requirements.txt
-│  ├─ start.cmd
-│  └─ web
-│     ├─ air.js
-│     ├─ app.js
-│     ├─ fires.css
-│     ├─ fires.js
-│     ├─ flick.js
-│     ├─ index.html
-│     ├─ intro.js
-│     ├─ style.css
-│     └─ ui.js
-├─ GEOFLARE_GUIDE.md
-├─ integration
-│  └─ NASA_POWER.py
-├─ LICENSE
-├─ loadation
-│  └─ load.py
-├─ main.py
-├─ modeling
-│  ├─ artifacts
-│  │  └─ high_frp_classifier.joblib
-│  ├─ compare_models.py
-│  ├─ features.py
-│  ├─ risk.py
-│  └─ train_model.py
-├─ orchestration
-│  ├─ airflow.Dockerfile
-│  ├─ dags
-│  │  └─ geodata_pipeline.py
-│  ├─ tasks.py
-│  └─ __init__.py
-├─ README.md
-├─ requirements-dev.txt
-├─ requirements.txt
-├─ run_pipeline_and_servers.cmd
-├─ scheduler.py
-├─ scripts
-│  ├─ geodata.ico
-│  └─ start_app.cmd
-├─ start_all_master.cmd
-├─ tests
-│  ├─ conftest.py
-│  ├─ test_api.py
-│  ├─ test_assistant.py
-│  ├─ test_blank_inputs.py
-│  ├─ test_degraded.py
-│  ├─ test_load.py
-│  ├─ test_model_upgrades.py
-│  ├─ test_orchestration.py
-│  ├─ test_risk_score.py
-│  ├─ test_sql_repository.py
-│  ├─ test_weather_download.py
-│  └─ __init__.py
-├─ transformation
-│  └─ transform.py
-└─ utils
-   └─ quality_checks.py
-
-```
