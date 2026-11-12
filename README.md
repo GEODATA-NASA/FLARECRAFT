@@ -746,13 +746,13 @@ For the method, the data sources, and the limits, read [geoflare/README.md](./ge
 
 A three-page Power BI report built on the 2025 fire detections, with daily weather from NASA POWER ("every fire NASA's satellites detected in 2025, MODIS and VIIRS, NASA FIRMS"). The screenshots live in [`assets/`](./assets).
 
-**1. Where the fires burned.** A world bubble map of the 2025 fires, where bubble size is the total fire power at that spot. Slicers pick months, satellites, and day or night. Cards show 41M detections, a 28.1% severe share, and the strongest fire at 11K MW.
-
-![Where the fires burned: bubble map of 2025 fires with month, satellite, and day/night slicers](assets/fire_map.png)
-
-**2. The fires of 2025.** Cards for detections (41M), severe detections of 10 MW or more (11M), the severe share (28.1%), average fire power (12.5 MW), and the strongest single fire (11K MW). Charts show fires day by day with the severe ones in red, detections by satellite, severe share by month, day versus night passes, and average humidity (61.9%), rain, and topsoil wetness.
+**1. The fires of 2025.** Cards for detections (41M), severe detections of 10 MW or more (11M), the severe share (28.1%), average fire power (12.5 MW), and the strongest single fire (11K MW). Charts show fires day by day with the severe ones in red, detections by satellite, severe share by month, day versus night passes, and average humidity (61.9%), rain, and topsoil wetness.
 
 ![The fires of 2025: KPI cards, daily detections, satellite split, severe share by month, day or night, and weather cards](assets/overview.png)
+
+**2. Where the fires burned.** A world bubble map of the 2025 fires, where bubble size is the total fire power at that spot. Slicers pick months, satellites, and day or night. Cards show 41M detections, a 28.1% severe share, and the strongest fire at 11K MW.
+
+![Where the fires burned: bubble map of 2025 fires with month, satellite, and day/night slicers](assets/fire_map.png)
 
 **3. Two eyes on the same fires.** MODIS (1 km pixels) against the two VIIRS satellites (375 m pixels): 3.7M detections for MODIS versus 18.5M each for VIIRS, an average fire power of 41.2 MW versus 9.7 MW, and a severe share of 75.6% versus 23.3% and 23.5%. MODIS only catches the bigger fires, which is why the record has to be harmonized before years are compared, as GeoFlare does.
 
