@@ -55,7 +55,7 @@ if exist "data\product\report.json" (
 start "" /b powershell -NoProfile -WindowStyle Hidden -Command "for ($i = 0; $i -lt 60; $i++) { try { Invoke-WebRequest -UseBasicParsing '%BASE%health' -TimeoutSec 2 | Out-Null; Start-Process '%URL%'; break } catch { Start-Sleep -Seconds 1 } }"
 echo.
 echo  GeoFlare is starting on %BASE%
-echo  Dashboard: %BASE%dashboard   Fires: %BASE%fires   Air: %BASE%air
+echo  Fires: %BASE%fires   Air: %BASE%air
 echo  Keep this window open while you use it. Close it to stop.
 echo.
 ".venv\Scripts\python.exe" -m uvicorn api.main:app --host 127.0.0.1 --port 8010 --log-level warning

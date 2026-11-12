@@ -12,7 +12,11 @@ const App = (() => {
     { label: "Australia", name: "south-east Australia", bbox: [140, -39, 154, -28] },
     { label: "Whole world", name: "the world" },
   ];
-  const VIEWS = ["dashboard", "fires", "air"];
+  const VIEWS = ["fires", "air"];
+  // Fires sub-sections and the tab each belongs to. "severe" opens from Today's button and stays under Now > Today.
+  const FSUBS = { history: "past", archive: "past", today: "now", severe: "now", outlook: "now" };
+  const FTABS = { past: [["history", "History"], ["archive", "2025 archive"]], now: [["today", "Today"], ["outlook", "Next 4 weeks"]] };
+  const OLD_SUBS = { now: "today", explore: "archive" };   // links from before the Dashboard was folded into Fires
   const weekDate = (w) => { const d = new Date(Date.UTC(2001, 0, 1 + w * 7)); return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`; };
   const query = (a) => (a.country ? `country=${encodeURIComponent(a.country)}` : a.bbox ? `bbox=${a.bbox.join(",")}` : "");
 
@@ -261,14 +265,25 @@ const App = (() => {
     state.liveWindow = window;
     document.querySelectorAll("#now-window button").forEach((b) => b.classList.toggle("on", b.dataset.w === window));
     loadingFacts("now-glance", ["Fire hotspots", "Strong fires", "Factories & flares", "Busiest country"]);
-    try { state.live = await api(`/api/live?window=${window}`); }
-    catch (err) { facts("now-glance", [{ k: "Live data", v: "Unavailable", d: err.message }]); nowFlick && nowFlick.say("NASA's live feed isn't answering right now. Try again in a few minutes.", "worried"); return; }
+    const q = new URLSearchParams({ window, sat: $("now-sat").value, conf: $("now-conf").value, daynight: $("now-dn").value, min_frp: $("now-frp").value });
+    const ticket = (state.nowTicket = (state.nowTicket || 0) + 1);   // only the latest request may draw
+    try { const live = await api(`/api/live?${q}`); if (ticket !== state.nowTicket) return; state.live = live; }
+    catch (err) {
+      if (ticket !== state.nowTicket) return;
+      const empty = /empty|match/i.test(err.message);
+      facts("now-glance", [{ k: "Live data", v: empty ? "No fires" : "Unavailable", d: err.message }]);
+      nowFlick && nowFlick.say(empty ? `${UI.esc(err.message)} Try another satellite or loosen a switch.` : "NASA's live feed isn't answering right now. Try again in a few minutes.", "worried");
+      return;
+    }
     renderNow();
   }
   function renderNow() {
     const l = state.live;
     if (!l) return;
-    $("now-lede").textContent = `Fires spotted by NASA's VIIRS satellites between ${l.oldest} and ${l.newest}. Refreshed every few hours.`;
+    $("now-lede").textContent = `Fires spotted by NASA's VIIRS ${l.satellite} satellite between ${l.oldest} and ${l.newest}.`;
+    const f = l.filters || {};
+    $("now-source").textContent = `Source: NASA FIRMS near-real-time feed, VIIRS ${l.satellite}, about 3 hours behind the satellite. Fetched ${l.fetched.replace("T", " ").replace("+00:00", " UTC")}. `
+      + `Showing ${fmt(l.shown_detections)} of ${fmt(l.raw_detections)} detections${f.conf === "nh" ? " (nominal and high confidence, as in the archive)" : ""}.`;
     const top = l.countries[0], big = l.biggest[0];
     facts("now-glance", [
       { k: "Fire hotspots", v: fmt(l.fires), accent: true, d: "spotted from space in this window" },
@@ -278,12 +293,13 @@ const App = (() => {
     ]);
     nowFlick && nowFlick.say(`${state.liveWindow === "24h" ? "In the last day" : "This week"} satellites spotted <strong>${fmt(l.fires)} fires</strong>. ${fmt(l.severe)} of them were strong.`
       + (big ? ` The fiercest is in ${place(big.country, big.lat, big.lon)}, giving off ${fmt(big.frp)} MW. Tap it in the list and I'll fly you there.` : "")
-      + ` Want to know which could turn severe? Open <a href="/fires" data-view="fires">GeoFlare Fires</a>.`, "wow");
+      + ` Want to know which could turn severe? Press <a href="/fires#severe" data-view="fires">See which could turn severe</a>.`, "wow");
     const map = getMap("now-map"), group = layers["now-map"], r = ramp();
     group.clearLayers();
     const cells = l.cells.slice().sort((a, b) => b[2] - a[2]), maxN = d3.max(cells, (c) => c[2]) || 1;
     let drawn = 0;
     for (const [lat, lon, n, frp, ind] of cells) {
+      if (ind && !$("now-ind").checked) continue;
       if (ind) { L.circleMarker([lat, lon], { radius: 3, stroke: false, fillColor: css("--flare"), fillOpacity: 0.85 }).bindTooltip("Gas flare or factory, not a wildfire").addTo(group); continue; }
       if (drawn++ > 9000) continue;
       const strength = Math.min(1, Math.log1p(frp) / Math.log1p(300));
@@ -300,7 +316,10 @@ const App = (() => {
   const loaded = {};
   function parse() {
     const first = location.pathname.replace(/^\/+/, "").split("/")[0];
-    return { view: VIEWS.includes(first) ? first : "dashboard", sub: location.hash.slice(1) };
+    const hash = location.hash.slice(1), view = first === "air" ? "air" : "fires";
+    if (view === "air") return { view, sub: hash };
+    const sub = OLD_SUBS[hash] || hash;
+    return { view, sub: FSUBS[sub] ? sub : "history" };
   }
   function go(view, sub = "") {
     const url = `/${view}${sub ? `#${sub}` : ""}`;
@@ -316,32 +335,38 @@ const App = (() => {
     document.querySelectorAll(".products a").forEach((a) => { const on = a.dataset.view === view; a.classList.toggle("on", on); a.setAttribute("aria-current", on ? "page" : "false"); });
     document.querySelectorAll("section.view").forEach((s) => (s.hidden = s.dataset.view !== view));
     document.title = `GeoFlare ${view[0].toUpperCase() + view.slice(1)} · Team FLARECRAFT`;
-    $("back").hidden = false;   // there is always somewhere to go back to: the previous app, or the Dashboard
+    $("back").hidden = false;   // there is always somewhere to go back to: the previous screen, or Fires
     if (changed) {
       scrollTo(0, 0);
       Voice.pop();
       anime({ targets: `section.view[data-view="${view}"] > *`, opacity: [0, 1], translateY: [10, 0], delay: anime.stagger(40), duration: 420, easing: "easeOutQuad" });
     }
     UI.refreshMaps();
-    if (view === "dashboard") await showPane(sub === "now" ? "now" : "history");
-    if (view === "fires" && window.Fires) await Fires.show(sub);
+    if (view === "fires") await showFires(sub);
     if (view === "air" && window.Air) {
+      // Every click on the Air tab starts Flick's Air story; the page itself is built when the story ends, so its maps never draw while hidden.
+      if (state.airIntro) { state.airIntro = false; playAirStory(); return; }
       await Air.show(sub);
-      if (!airStorySeen() && changed && state.navs > 0) playAirStory();   // the first visit from another app gets Flick's Air story
     }
   }
-  async function showPane(pane) {
-    state.pane = pane;
-    document.querySelectorAll("#dash-sub button").forEach((b) => b.classList.toggle("on", b.dataset.pane === pane));
-    document.querySelectorAll('.view[data-view="dashboard"] .pane').forEach((p) => (p.hidden = p.dataset.pane !== pane));
+  async function showFires(sub) {
+    const top = FSUBS[sub], shown = sub === "severe" ? "today" : sub;
+    state.fsub = sub;
+    document.querySelectorAll("#fires-top button").forEach((b) => { const on = b.dataset.top === top; b.classList.toggle("on", on); b.setAttribute("aria-selected", on); });
+    $("fires-subs").innerHTML = FTABS[top].map(([key, label]) => `<button role="tab" data-fsub="${key}" class="${key === shown ? "on" : ""}" aria-selected="${key === shown}">${label}</button>`).join("");
+    // History and Today are built into the page; the archive, severity and outlook are built by fires.js.
+    const pane = sub === "history" ? "history" : sub === "today" ? "now" : null;
+    document.querySelectorAll('.view[data-view="fires"] > .pane').forEach((p) => (p.hidden = p.dataset.pane !== pane));
+    $("fires-view").hidden = !!pane;
     UI.refreshMaps();
+    if (!pane) { if (window.Fires) Fires.show({ archive: "explore", severe: "today", outlook: "outlook" }[sub]); return; }
     if (!loaded[pane]) {
       loaded[pane] = true;
       if (pane === "history") { initHistoryMap(); loadLeader(); await loadArea(state.area); }
       if (pane === "now") await loadNow();
     }
   }
-  const tourKey = () => (state.view === "dashboard" ? `dashboard-${state.pane}` : state.view);
+  const tourKey = () => (state.view === "fires" ? `fires-${state.fsub}` : state.view);
 
   function rerenderAll() {
     renderHistory(); renderNow();
@@ -357,19 +382,20 @@ const App = (() => {
 
   /* ================================================================ Flick's tours: short, and only on a first visit */
   const TOURS = {
-    "dashboard-history": [
-      { at: ".products", mood: "happy", say: "This is GeoFlare. Three apps, one place: <strong>Dashboard</strong> for the past and present, <strong>Fires</strong> for danger, <strong>Air</strong> for your health." },
-      { at: 'section[data-view="dashboard"] .hero', mood: "happy", say: "Pick a place. I'll try the <strong>Nile Delta</strong>, close to home!", run: () => loadArea(PLACES[0]) },
+    "fires-history": [
+      { at: ".products", mood: "happy", say: "This is GeoFlare. Two apps, one place: <strong>Fires</strong> for the past and the present, <strong>Air</strong> for your health." },
+      { at: ".fnav", mood: "think", say: "<strong>Past</strong> holds the history and the 2025 archive. <strong>Now</strong> holds today's fires and the next four weeks." },
+      { at: '.pane[data-pane="history"] .hero', mood: "happy", say: "Pick a place. I'll try the <strong>Nile Delta</strong>, close to home!", run: () => loadArea(PLACES[0]) },
       { at: "#dash-flick", mood: "proud", say: "Whenever you pick a place, I'll sum it up for you up here." },
       { at: "#calendar-card", mood: "wow", say: "Every square is one week since 2003. Tap one and the map shows that week." },
       { at: "#leader-card", mood: "wink", say: "And here's who has the fewest severe fires and the cleanest air from industry." },
     ],
-    "dashboard-now": [
+    "fires-today": [
       { at: "#now-flick", mood: "wow", say: "These are today's fires, fresh from NASA. I'll tell you the headline up here." },
-      { at: "#now-map-card", mood: "happy", say: "The blue dots aren't wildfires. They're gas flares and factories, recognised from 23 years of history." },
+      { at: "#now-map-card", mood: "happy", say: "The blue dots aren't wildfires. They're gas flares and factories, recognised from the satellite archive. Press <strong>See which could turn severe</strong> to score today's fires." },
     ],
   };
-  const tours = (key) => TOURS[key] || (key === "fires" && window.Fires && Fires.tour) || (key === "air" && window.Air && Air.tour) || [];
+  const tours = (key) => TOURS[key] || (key === "fires-severe" && window.Fires && Fires.tour) || (key === "air" && window.Air && Air.tour) || [];
 
   const Guide = (() => {
     let dlg = null, key = null, i = 0, spot = null;
@@ -440,21 +466,24 @@ const App = (() => {
       state.leaderDir = b.dataset.dir; document.querySelectorAll("#leader-toggle button").forEach((o) => o.classList.toggle("on", o === b)); renderLeader();
     }));
     document.querySelectorAll("#now-window button").forEach((b) => b.addEventListener("click", () => loadNow(b.dataset.w)));
-    document.querySelectorAll("#dash-sub button").forEach((b) => b.addEventListener("click", () => go("dashboard", b.dataset.pane === "now" ? "now" : "")));
+    ["now-sat", "now-conf", "now-dn", "now-frp"].forEach((id) => $(id).addEventListener("change", () => loadNow()));
+    $("now-ind").addEventListener("change", renderNow);
+    document.querySelectorAll("#fires-top button").forEach((b) => b.addEventListener("click", () => go("fires", b.dataset.top === "now" ? "today" : "history")));
+    $("fires-subs").addEventListener("click", (e) => { const b = e.target.closest("[data-fsub]"); if (b) go("fires", b.dataset.fsub); });
     // Any link or button with data-view switches app without a page load, so back and forward work.
     document.addEventListener("click", (e) => {
-      const a = e.target.closest("[data-view]");
-      if (!a || a.closest("section.view[data-view]") === a || e.metaKey || e.ctrlKey || e.shiftKey) return;
-      if (a.tagName === "SECTION") return;
+      const a = e.target.closest("a[data-view]");   // links only: <body> and the views carry data-view too
+      if (!a || e.metaKey || e.ctrlKey || e.shiftKey) return;
       e.preventDefault();
       const [path, sub = ""] = (a.getAttribute("href") || `/${a.dataset.view}`).split("#");
+      if (a.dataset.view === "air" && !sub && state.view !== "air") state.airIntro = true;
       go(path.replace(/^\/+/, "") || a.dataset.view, sub);
     });
     addEventListener("popstate", route);
     addEventListener("hashchange", route);
     $("year-pick").addEventListener("change", (e) => renderSeason(+e.target.value));
     $("print").addEventListener("click", () => { $("expert").open = true; renderAnnual(); renderValidation(); setTimeout(print, 250); });
-    $("back").addEventListener("click", () => { if (history.length > 1 && state.navs > 0) history.back(); else go("dashboard"); });
+    $("back").addEventListener("click", () => { if (history.length > 1 && state.navs > 0) history.back(); else go("fires"); });
     $("replay").addEventListener("click", () => { Guide.end(false); $("app").hidden = true; Story.open(show); });
     $("air-story").addEventListener("click", playAirStory);
     $("theme").addEventListener("click", toggleTheme);
@@ -471,20 +500,19 @@ const App = (() => {
   }
 
   /* GeoFlare Air's own story: what flares put in the air, and whether factory heat and wildfires are related. */
-  const airStorySeen = () => { try { return localStorage.getItem("geoflare-air-story") === "1"; } catch (e) { return false; } };
   function playAirStory() {
-    try { localStorage.setItem("geoflare-air-story", "1"); } catch (e) {}
     Guide.end(false);
     $("app").hidden = true;
-    Story.openAir(() => { $("app").hidden = false; if (state.view !== "air") go("air"); UI.refreshMaps(); scrollTo(0, 0); });
+    Story.openAir((opts = {}) => { $("app").hidden = false; go("air", opts.sub || ""); UI.refreshMaps(); scrollTo(0, 0); });
   }
 
-  /* Called when the story ends (or straight away for /dashboard, /fires, /air). */
+  /* Called when the story ends (or straight away for /fires and /air). */
   function show(opts = {}) {
     $("app").hidden = false;
     if (opts.tour) { try { Object.keys(localStorage).filter((k) => k.startsWith("geoflare-toured-")).forEach((k) => localStorage.removeItem(k)); localStorage.removeItem("geoflare-guide-off"); } catch (e) {} }
-    if (opts.view) { history.replaceState(null, "", `/${opts.view}${opts.sub ? `#${opts.sub}` : ""}`); }
-    else if (!VIEWS.includes(location.pathname.replace(/^\/+/, "").split("/")[0])) history.replaceState(null, "", `/dashboard${location.hash}`);
+    if (opts.view === "air" && !opts.sub) state.airIntro = true;   // choosing Air at the end of the main story starts the Air story
+    if (opts.view) history.replaceState(null, "", `/${VIEWS.includes(opts.view) ? opts.view : "fires"}${opts.sub ? `#${opts.sub}` : ""}`);
+    else { const { view, sub } = parse(); history.replaceState(null, "", `/${view}${sub && sub !== "history" ? `#${sub}` : ""}`); }   // old /dashboard links land in Fires
     state.view = null;
     route();
   }

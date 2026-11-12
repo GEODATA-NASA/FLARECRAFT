@@ -31,7 +31,8 @@ const Fires = (() => {
 
     <div class="pane" data-sub="today">
       <div class="hero">
-        <p class="chapter">GeoFlare Fires</p>
+        <p><a class="pill" href="/fires#today" data-view="fires">&larr; Back to today's map</a></p>
+        <p class="chapter">GeoFlare Fires · Now · Today, scored</p>
         <h1>Which fires could turn <span>severe</span>?</h1>
         <p class="lede">Our AI model looks at each fire's heat, place, season and weather, and gives the chance it is a severe fire: 10 megawatts or more. Then we check its answers against what the satellites measured.</p>
       </div>
@@ -52,7 +53,7 @@ const Fires = (() => {
 
     <div class="pane" data-sub="outlook" hidden>
       <div class="hero">
-        <p class="chapter">GeoFlare Fires · Next 4 weeks</p>
+        <p class="chapter">GeoFlare Fires · Now · Next 4 weeks</p>
         <h1>Where should we <span>watch</span> next?</h1>
         <p class="lede" id="fout-lede">Where fires usually burn in the coming four weeks, and how fierce they tend to be there.</p>
       </div>
@@ -70,7 +71,7 @@ const Fires = (() => {
 
     <div class="pane" data-sub="explore" hidden>
       <div class="hero">
-        <p class="chapter">GeoFlare Fires · Archive</p>
+        <p class="chapter">GeoFlare Fires · Past · 2025 archive</p>
         <h1>Look up any fire from <span id="fx-year">2025</span></h1>
         <p class="lede">Every fire NASA's satellites recorded, scored by the model. Pick dates and satellites, or tap the map to score a fire of your own.</p>
       </div>
@@ -602,6 +603,7 @@ const Fires = (() => {
     const root = $("fires-view");
     $("fires-sub").querySelectorAll("button").forEach((b) => { const on = b.dataset.sub === name; b.classList.toggle("on", on); b.setAttribute("aria-selected", on); });
     root.querySelectorAll(".pane").forEach((p) => { p.hidden = p.dataset.sub !== name; });
+    root.dataset.sub = name;
     if (replace) history.replaceState(null, "", `#${name}`);
     // One Flick per pane, created on first view so its portrait is sized while visible.
     const host = root.querySelector(`.pane[data-sub="${name}"] [data-flick]`);
@@ -625,11 +627,9 @@ const Fires = (() => {
   }
 
   const tour = [
-    { at: "#fires-sub", mood: "happy", say: "GeoFlare Fires has three parts: the fires burning <strong>today</strong>, the <strong>next 4 weeks</strong>, and the whole <strong>archive</strong>." },
     { at: "#fsev-map-card", mood: "think", say: "Every dot is a fire burning now, coloured by how likely our model thinks it's severe. Tap one and I'll tell you if the model got it right." },
     { at: "#fsev-trust-card", mood: "wink", say: "This is the honesty check. When the model said 80 to 100%, how many fires really were severe? Taller bars on the right mean it's doing its job." },
     { at: "#fsev-watch-card", mood: "worried", say: "The watch list: the fires the model worries about most right now. Tap one and the map flies there." },
-    { at: '#fires-sub [data-sub="explore"]', mood: "proud", say: "Want to dig deeper? In the archive you can look up any fire, or drop a pin and score one yourself." },
   ];
 
   return { show, tour };

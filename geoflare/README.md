@@ -1,6 +1,6 @@
 # GeoFlare
 
-**Three apps for our planet's fires and the air around them.** GeoFlare Dashboard: a fire calendar for any place on Earth since 2003, today's fires, and a country leaderboard. GeoFlare Fires: which fires could turn severe, and the archive map. GeoFlare Air: is the air safe where you live, near gas flares and factories, and what to do about it.
+**Two apps for our planet's fires and the air around them.** GeoFlare Fires has two halves. Past: a fire calendar for any place on Earth since 2003, a country leaderboard, and the 2025 archive map. Now: today's fires, which of them could turn severe, and the next 4 weeks. GeoFlare Air: is the air safe where you live, near gas flares and factories, and what to do about it.
 
 NASA Space Apps 2026 · Team FLARECRAFT (Assiut, Egypt): Beshoy AbdelMaseeh, Beshoy Kamal, George Essam, Mathew Emad, Sondos Alsayed · Challenge: *Harmonization of MODIS and VIIRS Hot Spots*
 
@@ -11,7 +11,7 @@ NASA Space Apps 2026 · Team FLARECRAFT (Assiut, Egypt): Beshoy AbdelMaseeh, Bes
 Satellites have logged active fires since 2000, but the record is split between two sensors.
 
 - **MODIS** (Terra 2000–, Aqua 2002–) sees the ground in 1 km pixels.
-- **VIIRS** (S-NPP 2012–, NOAA-20 2018–) sees it in 375 m pixels. For the same fires it records about **4.5×** more detections, and it finds small fires that MODIS misses.
+- **VIIRS** (S-NPP 2012–, NOAA-20 2018–) sees it in 375 m pixels. For the same fires it records about **4×** more detections, and it finds small fires that MODIS misses.
 
 Stitching the two records together makes burning appear to jump several-fold in 2012. Any trend computed on that stitched record measures the sensor change, not the fires. Fire managers are left without a consistent answer to *when and where has burning happened here, and is this year unusual?*
 
@@ -21,9 +21,9 @@ Stitching the two records together makes burning appear to jump several-fold in 
 2. **A harmonized record from 2003 to today in VIIRS units.**
    - 2012 onward: observed by VIIRS.
    - 2003–2011: reconstructed from MODIS, with **empirical 80% uncertainty bands**.
-3. **Three apps in one site**, with an opening story and Flick, our mascot, as narrator and guide. Each app has its own address and can be opened on its own: `/dashboard`, `/fires`, `/air`.
+3. **Two apps in one site**, with an opening story and Flick, our mascot, as narrator and guide. Each app has its own address and can be opened on its own: `/fires` and `/air`. Fires is split into Past (`/fires#history`, `/fires#archive`) and Now (`/fires#today`, `/fires#severe`, `/fires#outlook`). Opening Air plays a short Air story first.
 
-   **GeoFlare Dashboard: the past.** Pick a country, a preset region or any box you draw, and get:
+   **GeoFlare Fires · Past · History.** Pick a country, a preset region or any box you draw, and get:
    - a **burning-activity calendar**: years × 52 weeks, with reconstructed weeks hatched and unusual weeks circled;
    - **the fire season**: start, peak, end and critical window. Seasons that cross New Year are handled correctly;
    - **unusual months and years**, scored against that area's own climatology;
@@ -34,9 +34,9 @@ Stitching the two records together makes burning appear to jump several-fold in 
 
    - a **leaderboard**: countries with the fewest severe fires (10 MW or more) and the least factory and flare heat per 1,000 km², in 2025. The country you pick shows its own rank.
 
-   **GeoFlare Dashboard: right now.** Live fires from NASA's public FIRMS feed (VIIRS, last 24 hours or 7 days). The feed has no source type, so factories and gas flares are recognised from the archive.
+   **GeoFlare Fires · Now · Today.** Live fires from NASA's public FIRMS feed (VIIRS, last 24 hours or 7 days). It shows one satellite at a time so no fire is counted twice: NOAA-20 first, then NOAA-21 (the Suomi NPP feed was empty when we checked in November 2026). Nominal and high confidence only by default, as in the archive, with switches for satellite, confidence, day or night and minimum fire power. The feed has no source type, so factories and gas flares are recognised from the archive.
 
-   **GeoFlare Fires.** The [GeoData AI](https://github.com/GEODATA-NASA/GeoData-AI-Forest-Fires-Climate-Intelligence-Pipeline) CatBoost model (ROC-AUC 0.893 on its chronological hold-out, 0.895 ± 0.005 in spatial cross-validation) scores today's fires, and the app grades it against the fire power the satellites measured. A 4-week outlook combines usual activity from the calendar with the model's severity chance. It is a planning guide, not a forecast of individual fires. "Explore the archive" is the GeoData map rebuilt inside GeoFlare: filters, a day-by-day chart, scoring any spot on the map (blank inputs allowed), and the data assistant. Scores show as a calibrated Fire Risk Score (0-100, Low/Medium/High/Extreme) from the GeoData model. "Open the classic map view" opens the original GeoData map on port 8000, with a button back to GeoFlare Fires.
+   **GeoFlare Fires · severity, next 4 weeks and the 2025 archive.** The [GeoData AI](https://github.com/GEODATA-NASA/GeoData-AI-Forest-Fires-Climate-Intelligence-Pipeline) CatBoost model (ROC-AUC 0.893 on its chronological hold-out, 0.895 ± 0.005 in spatial cross-validation) scores today's fires, and the app grades it against the fire power the satellites measured. A 4-week outlook combines usual activity from the calendar with the model's severity chance. It is a planning guide, not a forecast of individual fires. "Explore the archive" is the GeoData map rebuilt inside GeoFlare: filters, a day-by-day chart, scoring any spot on the map (blank inputs allowed), and the data assistant. Scores show as a calibrated Fire Risk Score (0-100, Low/Medium/High/Extreme) from the GeoData model. "Open the classic map view" opens the original GeoData map on port 8000, with a button back to GeoFlare Fires.
 
    **GeoFlare Air.** Type your town or share your location. GeoFlare joins three sources at that point:
    - industrial heat sites within 100 km, from the archive, with distance, direction, how many weeks each glowed, the trend since 2012, and whether each glowed in the last 24 hours;
@@ -81,7 +81,7 @@ The scripts create each virtual environment, install the requirements (including
 | `..\run_pipeline_and_servers.cmd` | Runs the GeoFlare pipeline (download, aggregate, build, rankings). If every step succeeds it starts both servers; if one fails it stops and starts nothing. |
 | `start.cmd` | Starts GeoData AI on port 8000 and GeoFlare on port 8010, then opens the browser. Use it once the data is built. |
 
-`start.cmd dashboard`, `start.cmd fires` or `start.cmd air` opens one app directly; plain `start.cmd` plays the story first. Keep the window open while you use the apps.
+`start.cmd fires` or `start.cmd air` opens one app directly; plain `start.cmd` plays the story first. Keep the window open while you use the apps.
 
 ### macOS and Linux
 
@@ -110,7 +110,7 @@ Generated data is not in this repository, so a fresh clone needs the pipeline st
 
 The Severity chapter also needs the GeoData AI service running on port 8000 (`GEODATA_API` overrides the address). `start.cmd` starts it from the parent folder using that folder's `.venv`; in a side-by-side setup, where GeoData AI is a sibling folder called `repo`, it uses that instead. If GeoData AI is not running, the Fires app, the severity scores and the 4-week outlook say the service is offline.
 
-`python -m pipeline.run` does the aggregate and build steps without supervision, picking up each archive as it finishes downloading. Open `/dashboard`, `/fires` or `/air` (or add `?app`) to skip the story.
+`python -m pipeline.run` does the aggregate and build steps without supervision, picking up each archive as it finishes downloading. Open `/fires` or `/air` (or add `?app`) to skip the story.
 
 Pipeline data paths are centralized in `pipeline/config.py`. Defaults are `../firms_archive/zips` for downloads, `data/` for generated data, and `../cleaned_data/` for the cleaned fires CSV. Override them with `FIRMS_ARCHIVE_DIR`, `EMBER_DATA_DIR`, and `CLEANED_DATA_DIR`; `EMBER_PRODUCT` can point the API at a separately located product directory. For Docker, the full endpoint list and every setting, see [GEOFLARE_GUIDE.md](../GEOFLARE_GUIDE.md).
 
@@ -121,7 +121,9 @@ Pipeline data paths are centralized in `pipeline/config.py`. Defaults are `../fi
 | `GET /api/calendar?country=Brazil` or `?bbox=w,s,e,n` | Calendar, climatology, season, anomalies, trends, outlook, insights |
 | `GET /api/map?year=2010&week_from=30&week_to=32&bbox=…` | Harmonized activity and industrial heat per cell |
 | `GET /api/export.csv?…` | Weekly raw MODIS, raw VIIRS (both satellites), reconstruction and harmonized series |
-| `GET /api/live?window=24h` | Live fires, strongest fires, busiest countries |
+| `GET /api/live?window=24h` (or `7d`), `&sat=auto\|noaa20\|noaa21\|snpp`, `&conf=nh\|all`, `&daynight=D\|N`, `&min_frp=` | Live NASA FIRMS fires from one VIIRS satellite: counts, map cells, fiercest fire per country, busiest countries |
+| `GET /api/live/features?bbox=&limit=` (same filters) | Live fires as scored GeoJSON plus totals, for the classic map's "Live now" switch |
+| `GET /api/findings` | Do factories and wildfires move together? Rhythm, proximity and trend results |
 | `GET /api/live/severity`, `/api/outlook` | Live fires scored and graded by the GeoData AI model; 4-week outlook |
 | `GET /api/industry` | Industrial heat sites, country ranking, yearly trend |
 | `GET /api/air?lat=&lon=` | Air verdict, nearby industrial sites, air quality and wind, facts, precautions |
