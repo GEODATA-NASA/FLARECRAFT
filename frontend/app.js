@@ -426,6 +426,7 @@
     const live = checkedValue("dataset") === "live";
     if (!live) state.live = null;
     ["start-date", "end-date"].forEach((id) => { el(id).disabled = live; });
+    ["archive-dates", "archive-sats", "reset-btn"].forEach((id) => { el(id).hidden = live; });   // the live feed fixes its own dates and satellite
     document.querySelectorAll('input[name="source"]').forEach((i) => { i.disabled = live; });
     loadFires();
   }
@@ -656,6 +657,15 @@
       el("ask-input").focus();
     }
   }
+  function toggleAsk(open) {
+    el("ask-panel").hidden = !open; el("ask-fab").setAttribute("aria-expanded", open);
+    if (open) el("ask-input").focus();
+  }
+  el("ask-fab").addEventListener("click", () => toggleAsk(el("ask-panel").hidden));
+  el("ask-close").addEventListener("click", () => { toggleAsk(false); el("ask-fab").focus(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !el("ask-panel").hidden) { toggleAsk(false); el("ask-fab").focus(); } });
+  // Flick's face is drawn by GeoFlare's script; without GeoFlare the button just says "Ask Flick"
+  document.head.appendChild(Object.assign(document.createElement("script"), { src: `${GEOFLARE}/flick.js`, onload: () => { el("ask-face").innerHTML = Flick.svg(36); } }));
   el("ask-form").addEventListener("submit", (e) => { e.preventDefault(); submitQuestion(el("ask-input").value); });
   el("ask-input").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitQuestion(el("ask-input").value); } });
   document.querySelectorAll(".suggestion").forEach((button) => button.addEventListener("click", () => submitQuestion(button.textContent)));

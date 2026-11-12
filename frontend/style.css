@@ -358,6 +358,14 @@ textarea#ask-input:disabled { opacity: 0.6; cursor: not-allowed; }
 .suggestion:focus-visible { outline: 0; box-shadow: 0 0 0 3px var(--focus); border-radius: 4px; }
 .actions-row { flex-direction: row; }
 .actions-row .btn-primary { flex: 1; }
+.ask-fab { position: fixed; right: 20px; bottom: 104px; z-index: 1100; display: flex; align-items: center; gap: 8px; border: 0; border-radius: 999px;
+  padding: 8px 18px 8px 10px; background: var(--accent); color: var(--on-accent, #fff); font: inherit; font-weight: 700; cursor: pointer; box-shadow: var(--shadow); }
+.ask-fab:focus-visible { outline: 0; box-shadow: 0 0 0 3px var(--focus); }
+.ask-fab svg { width: 30px; height: 36px; display: block; }
+.ask-float { position: fixed; right: 20px; bottom: 168px; z-index: 1100; width: min(400px, calc(100vw - 32px)); max-height: calc(100vh - 250px); overflow-y: auto;
+  background: var(--surface); border-radius: 18px; padding: 18px; box-shadow: var(--shadow); margin: 0; }
+.ask-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.ask-head h2 { margin: 0; }
 .ask-thread { display: flex; flex-direction: column; gap: 14px; }
 .ask-thread:not(:empty) { margin-bottom: 14px; }
 .turn-question { font-weight: 700; font-size: 14px; letter-spacing: -0.005em; }

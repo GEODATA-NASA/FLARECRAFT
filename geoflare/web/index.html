@@ -265,6 +265,22 @@
     </div>
     <span class="dlg-caret" aria-hidden="true">&#9660;</span>
   </div>
+  <button class="flick-fab" id="chat-fab" aria-expanded="false" aria-controls="chat" hidden><span id="chat-face"></span>Ask Flick</button>
+  <section class="chat" id="chat" aria-label="Ask Flick about the data" hidden>
+    <div class="chat-head"><div><strong>Ask Flick</strong><p class="sub">Fires since 2003, the 2025 records and the AI model.</p></div>
+      <button class="dlg-btn" id="chat-close" aria-label="Close the chat">&times;</button></div>
+    <div class="fx-thread" id="fx-thread" aria-live="polite"></div>
+    <form id="fx-ask" class="fx-ask" autocomplete="off">
+      <label class="visually-hidden" for="fx-q">Your question</label>
+      <textarea id="fx-q" rows="2" maxlength="2000" placeholder="How did Egypt's fires change since 2003?"></textarea>
+      <div class="chips" id="fx-suggest">
+        <button type="button">How did Egypt's fires change since 2003?</button>
+        <button type="button">How did severe fires change month by month in 2025?</button>
+        <button type="button">How reliable is the severity model?</button>
+      </div>
+      <div class="fx-actions"><button type="submit" class="pill strong" id="fx-ask-go">Ask</button><button type="button" class="pill" id="fx-ask-reset" hidden>Start over</button></div>
+    </form>
+  </section>
   <div class="tooltip" id="tooltip" role="tooltip"></div>
   <div class="toast" id="toast" role="status"></div>
   <div class="busy" id="busy"><span></span></div>
@@ -278,6 +294,7 @@
 <script src="/ui.js"></script>
 <script src="/fires.js"></script>
 <script src="/air.js"></script>
+<script src="/chat.js"></script>
 <script src="/intro.js"></script>
 <script src="/app.js"></script>
 </body>

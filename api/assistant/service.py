@@ -29,7 +29,9 @@ Use the tools for every number you report. Do not estimate counts, shares or mod
 
 Each row is one detection, not one fire: a single large fire produces many detections. Keep that distinction when you describe counts.
 
-If the question cannot be answered from these tools, say what is missing instead of guessing. Answer in a few short paragraphs or a short list. Lead with the answer."""
+The detailed detection table and the model cover one year (get_data_coverage gives the dates). For other years, or for how fires changed over time, use get_fire_history: it returns yearly totals for 2003-2025 by country or for the world, not individual fires, and it has no severity scores.
+
+If the question cannot be answered from these tools, say what is missing instead of guessing. Answer in a few short paragraphs or a short list. Never use a table: the chat window is narrow and shows only text and lists. Lead with the answer."""
 
 
 @dataclass

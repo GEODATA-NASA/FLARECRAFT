@@ -654,6 +654,7 @@ The API serves the frontend at `/` (disable with `SERVE_FRONTEND=0`). It needs i
 | `get_fire_statistics` | Counts, FRP statistics, severe share, and breakdowns for any filter |
 | `list_fires` | Individual detections (up to 50), optionally with predicted probability |
 | `predict_fire_severity` | Score a hypothetical or real detection |
+| `get_fire_history` | Yearly fire detections 2003–2025 for a country or the world, fire season, trend and unusual months, read from GeoFlare (`GEOFLARE_API`, default port 8010) |
 | `get_model_info` | Metrics, feature importances, hyperparameters, training extent |
 | `search_project_docs` | TF-IDF search over this README and a built-in data dictionary |
 
