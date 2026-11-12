@@ -22,7 +22,7 @@ from fastapi.staticfiles import StaticFiles
 
 from api.air import Air
 from api.analytics import analyse
-from api.live import GEODATA_API, GeoDataUnavailable, Live
+from api.live import GEODATA_API, GeoDataUnavailable, Live, LiveFeedEmpty
 from api.store import Store
 from pipeline.config import PRODUCT_DIR, WEB_DIR
 
@@ -160,14 +160,32 @@ def guarded(build):
         return build()
     except GeoDataUnavailable as error:
         raise HTTPException(503, f"The GeoData AI severity model is offline: {error}")
+    except LiveFeedEmpty as error:
+        raise HTTPException(404, str(error))
     except requests.RequestException as error:
         raise HTTPException(503, f"NASA's live fire feed could not be reached: {error}")
 
 
 @app.get("/api/live")
-def live_fires(window: str = Query("24h", pattern="^(24h|7d)$")):
-    """Fires detected by VIIRS in the last 24 hours (or 7 days), with factories and flares recognised from the archive."""
-    return guarded(lambda: live.summary(window))
+def live_fires(window: str = Query("24h", pattern="^(24h|7d)$"),
+               sat: str = Query("auto", pattern="^(auto|noaa20|noaa21|snpp)$", description="VIIRS satellite; auto = first feed with data"),
+               conf: str = Query("nh", pattern="^(nh|all)$", description="nh = nominal and high confidence (as the archive); all = include low"),
+               daynight: str = Query("", pattern="^(|D|N)$"),
+               min_frp: float = Query(0, ge=0, le=1000, description="Minimum fire radiative power, MW")):
+    """Fires detected by one VIIRS satellite in the last 24 hours (or 7 days), with factories and flares recognised from the archive."""
+    return guarded(lambda: live.summary(window, sat, conf, daynight, min_frp))
+
+
+@app.get("/api/live/features")
+def live_features(window: str = Query("24h", pattern="^(24h|7d)$"),
+                  sat: str = Query("auto", pattern="^(auto|noaa20|noaa21|snpp)$"),
+                  conf: str = Query("nh", pattern="^(nh|all)$"),
+                  daynight: str = Query("", pattern="^(|D|N)$"),
+                  min_frp: float = Query(0, ge=0, le=1000),
+                  bbox: str | None = Query(None, description="west,south,east,north"),
+                  limit: int = Query(5000, ge=100, le=5000)):
+    """Live fires as scored GeoJSON plus totals, for the classic map's "Live now" switch."""
+    return guarded(lambda: live.features(window, sat, conf, daynight, min_frp, parse_bbox(bbox), limit))
 
 
 @app.get("/api/live/severity")

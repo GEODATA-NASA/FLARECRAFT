@@ -7,6 +7,25 @@
   <meta name="description" content="GeoFlare Fires: where NASA FIRMS detected fires, and which ones the GeoData AI model expects to be severe.">
   <meta name="theme-color" content="#f5f5f7">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23d90429'/%3E%3Ccircle cx='16' cy='16' r='6' fill='%23fff'/%3E%3C/svg%3E">
+  <section class="section ask-float" id="ask-panel" aria-labelledby="ask-title" hidden>
+      <div class="ask-head"><h2 id="ask-title">Ask Flick</h2><button type="button" class="btn btn-quiet" id="ask-close" aria-label="Close the chat">&times;</button></div>
+      <div id="ask-thread" class="ask-thread" aria-live="polite"></div>
+      <form id="ask-form" autocomplete="off">
+        <label class="visually-hidden" for="ask-input">Your question</label>
+        <textarea id="ask-input" rows="2" maxlength="2000" placeholder="How did Egypt's fires change since 2003?"></textarea>
+        <div class="ask-suggestions" id="ask-suggestions">
+          <button type="button" class="suggestion">How did Egypt's fires change since 2003?</button>
+          <button type="button" class="suggestion">How did severe fires change month by month?</button>
+          <button type="button" class="suggestion">How reliable is the severity model?</button>
+        </div>
+        <div class="actions actions-row">
+          <button type="submit" class="btn btn-primary" id="ask-btn"><span class="btn-label">Ask</span></button>
+          <button type="button" class="btn btn-quiet" id="ask-reset" hidden>Start over</button>
+        </div>
+        <p id="ask-status" class="note" hidden></p>
+      </form>
+    </section>
+  <button type="button" class="ask-fab" id="ask-fab" aria-expanded="false" aria-controls="ask-panel"><span id="ask-face"></span>Ask Flick</button>
   <script>
     /* Apply the saved theme before first paint to avoid a flash. */
     (function () {
@@ -23,7 +42,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" crossorigin="anonymous">
+  <link rel="stylesheet" href="vendor/leaflet.min.css">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -90,11 +109,18 @@
     <section class="section" data-enter aria-labelledby="filters-title">
       <h2 id="filters-title">Filters</h2>
       <form id="filter-form" autocomplete="off">
-        <div class="row-2">
+        <div class="field"><span>Data</span>
+          <div class="segmented" data-segmented id="dataset-seg">
+            <span class="segmented-thumb" aria-hidden="true"></span>
+            <label><input type="radio" name="dataset" value="archive" checked><span>2025 archive</span></label>
+            <label><input type="radio" name="dataset" value="live"><span>Live now</span></label>
+          </div>
+        </div>
+        <div class="row-2" id="archive-dates">
           <label class="field"><span>From</span><input type="date" id="start-date" required></label>
           <label class="field"><span>To</span><input type="date" id="end-date" required></label>
         </div>
-        <div class="field"><span>Satellite</span>
+        <div class="field" id="archive-sats"><span>Satellite</span>
           <div class="chips" role="group" aria-label="Satellite sources">
             <label class="chip"><input type="checkbox" name="source" value="modis" checked><span>MODIS</span></label>
             <label class="chip"><input type="checkbox" name="source" value="viirs_j1" checked><span>VIIRS NOAA‑20</span></label>
@@ -153,25 +179,6 @@
           <button type="button" class="btn btn-quiet" id="reset-btn">Back to the latest week</button>
         </div>
         <p id="load-note" class="note" hidden></p>
-      </form>
-    </section>
-
-    <section class="section" data-enter aria-labelledby="ask-title">
-      <h2 id="ask-title">Ask about the data</h2>
-      <div id="ask-thread" class="ask-thread" aria-live="polite"></div>
-      <form id="ask-form" autocomplete="off">
-        <label class="visually-hidden" for="ask-input">Your question</label>
-        <textarea id="ask-input" rows="2" maxlength="2000" placeholder="Which region had the most severe fires in August?"></textarea>
-        <div class="ask-suggestions" id="ask-suggestions">
-          <button type="button" class="suggestion">How did severe fires change month by month?</button>
-          <button type="button" class="suggestion">Which satellite sees the strongest fires?</button>
-          <button type="button" class="suggestion">How reliable is the severity model?</button>
-        </div>
-        <div class="actions actions-row">
-          <button type="submit" class="btn btn-primary" id="ask-btn"><span class="btn-label">Ask</span></button>
-          <button type="button" class="btn btn-quiet" id="ask-reset" hidden>Start over</button>
-        </div>
-        <p id="ask-status" class="note" hidden></p>
       </form>
     </section>
 
@@ -246,8 +253,8 @@
     <div id="toast" class="toast" role="status" hidden></div>
   </main>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" crossorigin="anonymous"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.2/anime.min.js" crossorigin="anonymous"></script>
+  <script src="vendor/leaflet.min.js"></script>
+  <script src="vendor/anime.min.js"></script>
   <script src="app.js"></script>
   <script>
     /* Link back to the GeoFlare site on the same machine (port 8010). */

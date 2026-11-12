@@ -15,6 +15,7 @@ from pathlib import Path
 
 import anthropic
 
+from api.assistant.groq_client import DEFAULT_MODEL as GROQ_MODEL, GroqClient, GroqError
 from api.assistant.knowledge import KnowledgeBase
 from api.assistant.tools import TOOLS, ToolError, ToolExecutor, serialize
 
@@ -22,13 +23,15 @@ LOGGER = logging.getLogger("geodata.api.assistant")
 
 SYSTEM_PROMPT = """You answer questions about the GeoData AI wildfire project for analysts and engineers on the team.
 
-The project ingests NASA FIRMS satellite fire detections (MODIS and VIIRS) and NASA POWER daily weather, stores them in PostgreSQL/PostGIS, and trains a random-forest model that estimates the probability that a detected fire is severe, meaning its fire radiative power (FRP) is at or above a threshold (10 MW by default). The model does not predict whether fires start.
+The project ingests NASA FIRMS satellite fire detections (MODIS and VIIRS) and NASA POWER daily weather, stores them in PostgreSQL/PostGIS, and trains a CatBoost model that estimates the probability that a detected fire is severe, meaning its fire radiative power (FRP) is at or above a threshold (10 MW by default). The model does not predict whether fires start.
 
 Use the tools for every number you report. Do not estimate counts, shares or model scores from memory, and do not round them beyond what helps the reader. If a tool reports that the data is a random sample, say so and treat shares and rankings as representative but scale absolute counts as the tool explains. State the dates and area a number refers to. When a place is named, pass an approximate bounding box and say it is approximate.
 
 Each row is one detection, not one fire: a single large fire produces many detections. Keep that distinction when you describe counts.
 
-If the question cannot be answered from these tools, say what is missing instead of guessing. Answer in a few short paragraphs or a short list. Lead with the answer."""
+The detailed detection table and the model cover one year (get_data_coverage gives the dates). For other years, or for how fires changed over time, use get_fire_history: it returns yearly totals for 2003-2025 by country or for the world, not individual fires, and it has no severity scores.
+
+If the question cannot be answered from these tools, say what is missing instead of guessing. Answer in a few short paragraphs or a short list. Never use a table: the chat window is narrow and shows only text and lists. Lead with the answer."""
 
 
 @dataclass
@@ -81,6 +84,11 @@ class AssistantService:
         self.max_rounds = max_rounds
         self.use_fallbacks = use_fallbacks
         self.client = client if client is not None else anthropic.Anthropic(timeout=120.0, max_retries=2)
+        # Groq is used when its key is set and no Anthropic credentials are (GROQ_MODEL picks the model).
+        if client is None and os.getenv("GROQ_API_KEY") and not credentials_available(self.client):
+            self.client = GroqClient(os.environ["GROQ_API_KEY"])
+            self.model = os.getenv("GROQ_MODEL", GROQ_MODEL)
+            self.use_fallbacks = False
         self.knowledge = knowledge or KnowledgeBase.from_project(Path(runtime.settings.frontend_dir).parent)
         self.enabled = enabled
         self.tools = ToolExecutor(runtime, self.knowledge)
@@ -94,7 +102,7 @@ class AssistantService:
         if not self.enabled:
             reason = "The assistant is switched off (ASSISTANT_ENABLED=0)."
         elif not credentials_available(self.client):
-            reason = "No Anthropic credentials found. Set ANTHROPIC_API_KEY for the API process."
+            reason = "No language-model credentials found. Set GROQ_API_KEY or ANTHROPIC_API_KEY for the API process."
         return {"enabled": reason is None, "model": self.model, "reason": reason}
 
     def _request(self, messages: list) -> object:
@@ -137,6 +145,8 @@ class AssistantService:
                 raise AssistantUnavailable("The Anthropic API rejected the configured credentials.") from error
             except anthropic.PermissionDeniedError as error:
                 raise AssistantUnavailable("The configured Anthropic credentials cannot use this model.") from error
+            except GroqError as error:
+                raise AssistantUnavailable(str(error)) from error
             answer.rounds = round_number
             answer.model = getattr(response, "model", self.model)
             answer.stop_reason = response.stop_reason

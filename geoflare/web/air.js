@@ -270,7 +270,7 @@ const Air = (() => {
     const total = (d.global.find((g) => g[0] === d.year) || [0, 0])[1], top = d.ranking[0];
     facts("ind-glance", [
       { k: `Industrial hotspots in ${d.year}`, v: fmt(total), d: "hot pixels at flares, refineries and plants" },
-      { k: "Sites", v: fmt(d.sites.length), d: "places that glowed again and again" },
+      { k: "Sites", v: fmt(d.site_count || d.sites.length), d: `places with industrial heat in ${d.year}; the ${fmt(d.sites.length)} brightest are on the map` },
       { k: "Glows most", v: top ? top[0] : "—", accent: !!top, d: top ? `${fmt(top[1])} hotspots in ${d.year}` : "" },
       { k: "Today", v: state.live ? fmt(state.live.industrial) : "…", d: "seen at known sites in the last day" },
     ]);

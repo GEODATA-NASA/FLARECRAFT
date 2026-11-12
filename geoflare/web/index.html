@@ -12,7 +12,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;1,9..144,400&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <link rel="stylesheet" href="/vendor/leaflet.min.css">
   <link rel="stylesheet" href="/style.css">
   <link rel="stylesheet" href="/fires.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path d='M16 2c2 6 9 9 9 17a9 9 0 0 1-18 0c0-5 3-7 5-11 1 3 2 4 3 4-1-4-1-7 1-10z' fill='%23e8590c'/></svg>">
@@ -47,12 +47,11 @@
   <header class="nav">
     <div class="nav-inner">
       <button class="nav-btn back" id="back" type="button" aria-label="Go back" title="Go back" hidden>&larr; Back</button>
-      <a class="brand" href="/dashboard" data-view="dashboard" aria-label="GeoFlare home">
+      <a class="brand" href="/fires" data-view="fires" aria-label="GeoFlare home">
         <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 2c2 6 9 9 9 17a9 9 0 0 1-18 0c0-5 3-7 5-11 1 3 2 4 3 4-1-4-1-7 1-10z"/></svg>
         GeoFlare
       </a>
       <nav class="products" aria-label="GeoFlare apps">
-        <a href="/dashboard" data-view="dashboard"><span class="p-dot"></span>Dashboard</a>
         <a href="/fires" data-view="fires"><span class="p-dot"></span>Fires</a>
         <a href="/air" data-view="air"><span class="p-dot"></span>Air</a>
       </nav>
@@ -67,18 +66,21 @@
   </header>
 
   <main class="page">
-    <!-- =========================================== GeoFlare Dashboard -->
-    <section class="view" data-view="dashboard" hidden>
-      <div class="subnav toggle big" id="dash-sub" role="tablist">
-        <button class="on" data-pane="history" role="tab">The past</button>
-        <button data-pane="now" role="tab">Right now</button>
+    <!-- =========================================== GeoFlare Fires: Past (History, 2025 archive) and Now (Today, Next 4 weeks) -->
+    <section class="view" data-view="fires" hidden>
+      <div class="fnav">
+        <div class="toggle big" id="fires-top" role="tablist" aria-label="Past or now">
+          <button data-top="past" role="tab">Past</button>
+          <button data-top="now" role="tab">Now</button>
+        </div>
+        <div class="toggle" id="fires-subs" role="tablist" aria-label="Sections"></div>
       </div>
 
       <div class="pane" data-pane="history">
         <div class="hero">
-          <p class="chapter">GeoFlare Dashboard</p>
+          <p class="chapter">GeoFlare Fires · Past · History</p>
           <h1>When does <span id="place-name">the world</span> burn?</h1>
-          <p class="lede">Satellites have watched every fire on Earth since 2003. Pick a place and see its fires week by week, year by year.</p>
+          <p class="lede">Satellites have logged the Earth's fires since 2003. Pick a place and see its fires week by week, year by year.</p>
           <div class="search">
             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
             <input id="search" list="country-list" placeholder="Type a country, like Egypt or Brazil" autocomplete="off" aria-label="Search a country">
@@ -148,18 +150,26 @@
 
       <div class="pane" data-pane="now" hidden>
         <div class="hero">
-          <p class="chapter">GeoFlare Dashboard · Right now</p>
+          <p class="chapter">GeoFlare Fires · Now · Today</p>
           <h1>Where is Earth burning <span>right now</span>?</h1>
           <p class="lede" id="now-lede">Fires spotted by NASA's VIIRS satellites, refreshed every few hours.</p>
           <div class="toggle big" id="now-window"><button class="on" data-w="24h">Last 24 hours</button><button data-w="7d">Last 7 days</button></div>
+          <div class="now-filters" id="now-filters" aria-label="Filters for live fires">
+            <label>Satellite<select id="now-sat"><option value="auto">Auto (first with data)</option><option value="noaa20">VIIRS NOAA-20</option><option value="noaa21">VIIRS NOAA-21</option><option value="snpp">VIIRS Suomi NPP</option></select></label>
+            <label>Confidence<select id="now-conf"><option value="nh">Nominal and high (as the archive)</option><option value="all">All, including low</option></select></label>
+            <label>Time of day<select id="now-dn"><option value="">Day and night</option><option value="D">Day passes</option><option value="N">Night passes</option></select></label>
+            <label>Strength<select id="now-frp"><option value="0">Any</option><option value="10">10 MW or more (severe)</option><option value="50">50 MW or more</option><option value="100">100 MW or more</option></select></label>
+            <label class="now-check"><input type="checkbox" id="now-ind" checked> Show factories and flares</label>
+          </div>
+          <p class="sub now-source" id="now-source"></p>
         </div>
         <div class="flick-card" id="now-flick"></div>
         <div class="glance" id="now-glance"></div>
         <section class="card" id="now-map-card">
           <div class="card-head"><div><h2>Today's fire map</h2><p class="sub">Bigger, brighter dots are stronger fires. Tap one to see it up close.</p></div>
-            <a class="pill strong" href="/fires" data-view="fires">Which could turn severe? &rarr;</a></div>
+            <a class="pill strong" href="/fires#severe" data-view="fires">See which could turn severe &rarr;</a></div>
           <div class="map tall" id="now-map"></div>
-          <p class="sub map-key"><span class="dot fire"></span>Fires <span class="dot flare"></span>Gas flares and factories, recognised from 23 years of history</p>
+          <p class="sub map-key"><span class="dot fire"></span>Fires <span class="dot flare"></span>Gas flares and factories, recognised from the satellite archive</p>
         </section>
         <div class="two">
           <section class="card" id="now-biggest-card"><div class="card-head"><div><h2>Fiercest fire in each country</h2><p class="sub">Measured by the heat they give off (megawatts).</p></div></div>
@@ -168,10 +178,9 @@
             <div class="bars" id="now-countries"></div></section>
         </div>
       </div>
+      <!-- 2025 archive, severity and the 4-week outlook (built by fires.js) -->
+      <div id="fires-view" hidden></div>
     </section>
-
-    <!-- =========================================== GeoFlare Fires (built by fires.js) -->
-    <section class="view" data-view="fires" id="fires-view" hidden></section>
 
     <!-- =========================================== GeoFlare Air -->
     <section class="view" data-view="air" hidden>
@@ -256,19 +265,36 @@
     </div>
     <span class="dlg-caret" aria-hidden="true">&#9660;</span>
   </div>
+  <button class="flick-fab" id="chat-fab" aria-expanded="false" aria-controls="chat" hidden><span id="chat-face"></span>Ask Flick</button>
+  <section class="chat" id="chat" aria-label="Ask Flick about the data" hidden>
+    <div class="chat-head"><div><strong>Ask Flick</strong><p class="sub">Fires since 2003, the 2025 records and the AI model.</p></div>
+      <button class="dlg-btn" id="chat-close" aria-label="Close the chat">&times;</button></div>
+    <div class="fx-thread" id="fx-thread" aria-live="polite"></div>
+    <form id="fx-ask" class="fx-ask" autocomplete="off">
+      <label class="visually-hidden" for="fx-q">Your question</label>
+      <textarea id="fx-q" rows="2" maxlength="2000" placeholder="How did Egypt's fires change since 2003?"></textarea>
+      <div class="chips" id="fx-suggest">
+        <button type="button">How did Egypt's fires change since 2003?</button>
+        <button type="button">How did severe fires change month by month in 2025?</button>
+        <button type="button">How reliable is the severity model?</button>
+      </div>
+      <div class="fx-actions"><button type="submit" class="pill strong" id="fx-ask-go">Ask</button><button type="button" class="pill" id="fx-ask-reset" hidden>Start over</button></div>
+    </form>
+  </section>
   <div class="tooltip" id="tooltip" role="tooltip"></div>
   <div class="toast" id="toast" role="status"></div>
   <div class="busy" id="busy"><span></span></div>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.2/anime.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="/vendor/d3.min.js"></script>
+<script src="/vendor/topojson-client.min.js"></script>
+<script src="/vendor/anime.min.js"></script>
+<script src="/vendor/leaflet.min.js"></script>
 <script src="/flick.js"></script>
 <script src="/ui.js"></script>
 <script src="/fires.js"></script>
 <script src="/air.js"></script>
+<script src="/chat.js"></script>
 <script src="/intro.js"></script>
 <script src="/app.js"></script>
 </body>

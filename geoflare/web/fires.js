@@ -1,7 +1,7 @@
 /* GeoFlare Fires: which fires could turn severe. Three parts:
    Today (live fires scored by the GeoData AI model and graded against measured fire power),
    Next 4 weeks (calendar x model outlook), and Explore the archive (every 2025 fire, filters,
-   score-your-own, ask the data). Talks to /api/* and, through the same-origin proxy, /geodata/*. */
+   score-your-own). Talks to /api/* and, through the same-origin proxy, /geodata/*. */
 const Fires = (() => {
   const $ = (id) => document.getElementById(id);
   const SUBS = ["today", "outlook", "explore"];
@@ -11,7 +11,7 @@ const Fires = (() => {
     acq_time: "Time of day", longitude: "East-west position", latitude: "North-south position", day_of_year: "Time of year",
     rh2m: "Air humidity", gwettop: "Soil wetness", prectotcorr: "Rain", type: "Kind of hotspot" };
   const state = { sub: "today", sev: null, outlook: null, health: null, model: null, features: [], stats: null, filters: null,
-                  pin: null, lastProb: 0, ask: { history: [], enabled: false, busy: false }, loaded: {}, offline: false };
+                  pin: null, lastProb: 0, loaded: {}, offline: false };
   let mounted = false, flick = null;
 
   const fmt = (v) => UI.fmt(v), pct = (v) => UI.pct(v);
@@ -31,7 +31,8 @@ const Fires = (() => {
 
     <div class="pane" data-sub="today">
       <div class="hero">
-        <p class="chapter">GeoFlare Fires</p>
+        <p><a class="pill" href="/fires#today" data-view="fires">&larr; Back to today's map</a></p>
+        <p class="chapter">GeoFlare Fires · Now · Today, scored</p>
         <h1>Which fires could turn <span>severe</span>?</h1>
         <p class="lede">Our AI model looks at each fire's heat, place, season and weather, and gives the chance it is a severe fire: 10 megawatts or more. Then we check its answers against what the satellites measured.</p>
       </div>
@@ -52,7 +53,7 @@ const Fires = (() => {
 
     <div class="pane" data-sub="outlook" hidden>
       <div class="hero">
-        <p class="chapter">GeoFlare Fires · Next 4 weeks</p>
+        <p class="chapter">GeoFlare Fires · Now · Next 4 weeks</p>
         <h1>Where should we <span>watch</span> next?</h1>
         <p class="lede" id="fout-lede">Where fires usually burn in the coming four weeks, and how fierce they tend to be there.</p>
       </div>
@@ -70,7 +71,7 @@ const Fires = (() => {
 
     <div class="pane" data-sub="explore" hidden>
       <div class="hero">
-        <p class="chapter">GeoFlare Fires · Archive</p>
+        <p class="chapter">GeoFlare Fires · Past · 2025 archive</p>
         <h1>Look up any fire from <span id="fx-year">2025</span></h1>
         <p class="lede">Every fire NASA's satellites recorded, scored by the model. Pick dates and satellites, or tap the map to score a fire of your own.</p>
       </div>
@@ -135,20 +136,6 @@ const Fires = (() => {
             <p class="note" id="fx-extent"></p>
           </section>
         </div>
-        <section class="card" id="fx-ask-card" hidden>
-          <div class="card-head"><div><h2>Ask about the data</h2><p class="sub">Questions in plain words. The answer is looked up in the fire records and the model.</p></div></div>
-          <div class="fx-thread" id="fx-thread" aria-live="polite"></div>
-          <form id="fx-ask" class="fx-ask" autocomplete="off">
-            <label class="visually-hidden" for="fx-q">Your question</label>
-            <textarea id="fx-q" rows="2" maxlength="2000" placeholder="Which region had the most severe fires in August?"></textarea>
-            <div class="chips" id="fx-suggest">
-              <button type="button">How did severe fires change month by month?</button>
-              <button type="button">Which satellite sees the strongest fires?</button>
-              <button type="button">How reliable is the severity model?</button>
-            </div>
-            <div class="fx-actions"><button type="submit" class="pill strong" id="fx-ask-go">Ask</button><button type="button" class="pill" id="fx-ask-reset" hidden>Start over</button></div>
-          </form>
-        </section>
       </div>
     </div>`;
 
@@ -309,7 +296,6 @@ const Fires = (() => {
     if (!state.pin) setPin(27.18, 31.18);
     loadFires();
     loadModel();
-    loadAsk();
   }
   function resetFilters() {
     const end = (state.health && state.health.fire_date_range.end_date) || new Date().toISOString().slice(0, 10);
@@ -350,7 +336,8 @@ const Fires = (() => {
       drawFeatures(true);
       renderStats();
       const layer = state.fxLayer;
-      if (geo.features.length && !f.bbox && layer) UI.maps["fx-map"].flyToBounds(layer.getBounds().pad(0.08), { maxZoom: 7, duration: UI.reduced() ? 0 : 0.9 });
+      // a hidden map has no size, and Leaflet throws on every frame if it is flown
+      if (state.sub === "explore" && geo.features.length && !f.bbox && layer) UI.maps["fx-map"].flyToBounds(layer.getBounds().pad(0.08), { maxZoom: 7, duration: UI.reduced() ? 0 : 0.9 });
       if (state.sub === "explore") sayExplore();
     } catch (err) {
       if (isOffline(err)) { state.loaded.explore = false; return loadExplore(); }
@@ -515,43 +502,6 @@ const Fires = (() => {
       : "";
   }
 
-  /* ---------------------------------------------------------------- ask */
-  function markdown(text) {
-    const inline = (l) => UI.esc(l).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/`([^`]+)`/g, "<code>$1</code>");
-    const out = []; let list = null;
-    const close = () => { if (list) { out.push(`</${list}>`); list = null; } };
-    for (const raw of text.split(/\n/)) {
-      const line = raw.trimEnd(), b = line.match(/^\s*[-*•]\s+(.*)$/), n = line.match(/^\s*\d+[.)]\s+(.*)$/);
-      if (b || n) { const kind = b ? "ul" : "ol"; if (list !== kind) { close(); out.push(`<${kind}>`); list = kind; } out.push(`<li>${inline((b || n)[1])}</li>`); }
-      else if (!line.trim()) close();
-      else { close(); const h = line.match(/^#{1,6}\s+(.*)$/); out.push(h ? `<p><strong>${inline(h[1])}</strong></p>` : `<p>${inline(line)}</p>`); }
-    }
-    close();
-    return out.join("");
-  }
-  async function loadAsk() {
-    try { const s = await UI.api("/geodata/api/v1/ask/status"); state.ask.enabled = !!s.enabled; } catch (_) { state.ask.enabled = false; }
-    $("fx-ask-card").hidden = !state.ask.enabled;
-  }
-  async function ask(question) {
-    question = question.trim();
-    if (question.length < 2 || state.ask.busy || !state.ask.enabled) return;
-    state.ask.busy = true; $("fx-ask-go").disabled = true; $("fx-q").value = ""; $("fx-suggest").hidden = true;
-    const turn = document.createElement("div");
-    turn.className = "fx-turn";
-    turn.innerHTML = `<p class="fx-q"></p><div class="fx-a pending">Looking it up…</div>`;
-    turn.querySelector(".fx-q").textContent = question;
-    $("fx-thread").appendChild(turn);
-    const a = turn.querySelector(".fx-a");
-    try {
-      const r = await UI.post("/geodata/api/v1/ask", { question, history: state.ask.history.slice(-10) });
-      a.classList.remove("pending"); a.innerHTML = markdown(r.answer || "No answer came back.");
-      state.ask.history.push({ role: "user", content: question }, { role: "assistant", content: r.answer || "" });
-      $("fx-ask-reset").hidden = false;
-    } catch (err) { a.classList.remove("pending"); a.classList.add("failed"); a.textContent = `No answer. ${err.message}`; }
-    finally { state.ask.busy = false; $("fx-ask-go").disabled = false; }
-  }
-
   /* ================================================================ wiring */
   function wire() {
     $("fires-sub").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => switchSub(b.dataset.sub)));
@@ -564,10 +514,6 @@ const Fires = (() => {
     }));
     $("fs-sensor").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => setSensor(b.dataset.sensor)));
     $("fx-score").addEventListener("submit", (e) => score(e));
-    $("fx-ask").addEventListener("submit", (e) => { e.preventDefault(); ask($("fx-q").value); });
-    $("fx-q").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ask($("fx-q").value); } });
-    $("fx-suggest").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => ask(b.textContent)));
-    $("fx-ask-reset").addEventListener("click", () => { state.ask.history = []; $("fx-thread").innerHTML = ""; $("fx-ask-reset").hidden = true; $("fx-suggest").hidden = false; });
     UI.getMap("fx-map", [[20, 15], 2]).on("popupopen", (e) => {
       const btn = e.popup.getElement() && e.popup.getElement().querySelector("[data-score]");
       if (!btn) return;
@@ -602,6 +548,7 @@ const Fires = (() => {
     const root = $("fires-view");
     $("fires-sub").querySelectorAll("button").forEach((b) => { const on = b.dataset.sub === name; b.classList.toggle("on", on); b.setAttribute("aria-selected", on); });
     root.querySelectorAll(".pane").forEach((p) => { p.hidden = p.dataset.sub !== name; });
+    root.dataset.sub = name;
     if (replace) history.replaceState(null, "", `#${name}`);
     // One Flick per pane, created on first view so its portrait is sized while visible.
     const host = root.querySelector(`.pane[data-sub="${name}"] [data-flick]`);
@@ -625,11 +572,9 @@ const Fires = (() => {
   }
 
   const tour = [
-    { at: "#fires-sub", mood: "happy", say: "GeoFlare Fires has three parts: the fires burning <strong>today</strong>, the <strong>next 4 weeks</strong>, and the whole <strong>archive</strong>." },
     { at: "#fsev-map-card", mood: "think", say: "Every dot is a fire burning now, coloured by how likely our model thinks it's severe. Tap one and I'll tell you if the model got it right." },
     { at: "#fsev-trust-card", mood: "wink", say: "This is the honesty check. When the model said 80 to 100%, how many fires really were severe? Taller bars on the right mean it's doing its job." },
     { at: "#fsev-watch-card", mood: "worried", say: "The watch list: the fires the model worries about most right now. Tap one and the map flies there." },
-    { at: '#fires-sub [data-sub="explore"]', mood: "proud", say: "Want to dig deeper? In the archive you can look up any fire, or drop a pin and score one yourself." },
   ];
 
   return { show, tour };
