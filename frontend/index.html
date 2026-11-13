@@ -7,6 +7,25 @@
   <meta name="description" content="GeoFlare Fires: where NASA FIRMS detected fires, and which ones the GeoData AI model expects to be severe.">
   <meta name="theme-color" content="#f5f5f7">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23d90429'/%3E%3Ccircle cx='16' cy='16' r='6' fill='%23fff'/%3E%3C/svg%3E">
+  <section class="section ask-float" id="ask-panel" aria-labelledby="ask-title" hidden>
+      <div class="ask-head"><h2 id="ask-title">Ask Flick</h2><button type="button" class="btn btn-quiet" id="ask-close" aria-label="Close the chat">&times;</button></div>
+      <div id="ask-thread" class="ask-thread" aria-live="polite"></div>
+      <form id="ask-form" autocomplete="off">
+        <label class="visually-hidden" for="ask-input">Your question</label>
+        <textarea id="ask-input" rows="2" maxlength="2000" placeholder="How did Egypt's fires change since 2003?"></textarea>
+        <div class="ask-suggestions" id="ask-suggestions">
+          <button type="button" class="suggestion">How did Egypt's fires change since 2003?</button>
+          <button type="button" class="suggestion">How did severe fires change month by month?</button>
+          <button type="button" class="suggestion">How reliable is the severity model?</button>
+        </div>
+        <div class="actions actions-row">
+          <button type="submit" class="btn btn-primary" id="ask-btn"><span class="btn-label">Ask</span></button>
+          <button type="button" class="btn btn-quiet" id="ask-reset" hidden>Start over</button>
+        </div>
+        <p id="ask-status" class="note" hidden></p>
+      </form>
+    </section>
+  <button type="button" class="ask-fab" id="ask-fab" aria-expanded="false" aria-controls="ask-panel"><span id="ask-face"></span>Ask Flick</button>
   <script>
     /* Apply the saved theme before first paint to avoid a flash. */
     (function () {
@@ -97,11 +116,11 @@
             <label><input type="radio" name="dataset" value="live"><span>Live now</span></label>
           </div>
         </div>
-        <div class="row-2">
+        <div class="row-2" id="archive-dates">
           <label class="field"><span>From</span><input type="date" id="start-date" required></label>
           <label class="field"><span>To</span><input type="date" id="end-date" required></label>
         </div>
-        <div class="field"><span>Satellite</span>
+        <div class="field" id="archive-sats"><span>Satellite</span>
           <div class="chips" role="group" aria-label="Satellite sources">
             <label class="chip"><input type="checkbox" name="source" value="modis" checked><span>MODIS</span></label>
             <label class="chip"><input type="checkbox" name="source" value="viirs_j1" checked><span>VIIRS NOAA‑20</span></label>
@@ -160,25 +179,6 @@
           <button type="button" class="btn btn-quiet" id="reset-btn">Back to the latest week</button>
         </div>
         <p id="load-note" class="note" hidden></p>
-      </form>
-    </section>
-
-    <section class="section" data-enter aria-labelledby="ask-title">
-      <h2 id="ask-title">Ask about the data</h2>
-      <div id="ask-thread" class="ask-thread" aria-live="polite"></div>
-      <form id="ask-form" autocomplete="off">
-        <label class="visually-hidden" for="ask-input">Your question</label>
-        <textarea id="ask-input" rows="2" maxlength="2000" placeholder="Which region had the most severe fires in August?"></textarea>
-        <div class="ask-suggestions" id="ask-suggestions">
-          <button type="button" class="suggestion">How did severe fires change month by month?</button>
-          <button type="button" class="suggestion">Which satellite sees the strongest fires?</button>
-          <button type="button" class="suggestion">How reliable is the severity model?</button>
-        </div>
-        <div class="actions actions-row">
-          <button type="submit" class="btn btn-primary" id="ask-btn"><span class="btn-label">Ask</span></button>
-          <button type="button" class="btn btn-quiet" id="ask-reset" hidden>Start over</button>
-        </div>
-        <p id="ask-status" class="note" hidden></p>
       </form>
     </section>
 

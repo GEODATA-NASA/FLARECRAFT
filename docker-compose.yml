@@ -35,6 +35,7 @@ services:
       DB_HOST: db
       DB_PORT: 5432
       DATA_BACKEND: ${DATA_BACKEND:-auto}
+      GEOFLARE_API: http://geoflare:8010   # the assistant reads 2003-2025 history from GeoFlare
       API_LOG_FILE: /app/logs/api.log
     volumes:
       - ./raw_data:/app/raw_data

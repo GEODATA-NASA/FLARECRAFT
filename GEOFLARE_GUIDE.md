@@ -279,6 +279,7 @@ The `verdict` holds the level (1 to 6), the US AQI band, how close industry is, 
 | `CLEANED_DATA_DIR` | both | `cleaned_data/` | Cleaned GeoData CSVs |
 | `DATA_BACKEND` | GeoData | `auto` | `postgres`, `csv` or `auto` |
 | `DECISION_THRESHOLD` | GeoData | from the model | Overrides the saved recall-first threshold |
+| `GEOFLARE_API` | GeoData | `http://127.0.0.1:8010` | Where the assistant reads the 2003–2025 fire history |
 | `ANTHROPIC_API_KEY` | GeoData | none | Turns on the assistant (Claude) |
 | `GROQ_API_KEY`, `GROQ_MODEL` | GeoData | none, `openai/gpt-oss-120b` | Turns on the assistant through Groq when no Anthropic key is set |
 
