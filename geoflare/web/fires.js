@@ -351,7 +351,8 @@ const Fires = (() => {
       drawFeatures(true);
       renderStats();
       const layer = state.fxLayer;
-      if (geo.features.length && !f.bbox && layer) UI.maps["fx-map"].flyToBounds(layer.getBounds().pad(0.08), { maxZoom: 7, duration: UI.reduced() ? 0 : 0.9 });
+      // a hidden map has no size, and Leaflet throws on every frame if it is flown
+      if (state.sub === "explore" && geo.features.length && !f.bbox && layer) UI.maps["fx-map"].flyToBounds(layer.getBounds().pad(0.08), { maxZoom: 7, duration: UI.reduced() ? 0 : 0.9 });
       if (state.sub === "explore") sayExplore();
     } catch (err) {
       if (isOffline(err)) { state.loaded.explore = false; return loadExplore(); }
