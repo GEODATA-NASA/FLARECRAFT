@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>GeoData AI Fire Severity Map</title>
-  <meta name="description" content="Where NASA FIRMS detected fires, and which detections the GeoData AI model expects to be severe.">
+  <title>GeoFlare Fires · Fire severity map</title>
+  <meta name="description" content="GeoFlare Fires: where NASA FIRMS detected fires, and which ones the GeoData AI model expects to be severe.">
   <meta name="theme-color" content="#f5f5f7">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23d90429'/%3E%3Ccircle cx='16' cy='16' r='6' fill='%23fff'/%3E%3C/svg%3E">
   <script>
@@ -30,12 +30,13 @@
   <header class="nav" id="nav">
     <div class="nav-progress" id="nav-progress" aria-hidden="true"></div>
     <div class="nav-inner">
-      <a class="nav-brand" href="/" aria-label="GeoData AI home">
+      <a class="nav-brand" href="/" aria-label="GeoFlare Fires home">
         <span class="nav-mark" aria-hidden="true"></span>
-        <span>GeoData AI</span>
-        <span class="nav-sub">Fire severity</span>
+        <span>GeoFlare Fires</span>
+        <span class="nav-sub">Severity map</span>
       </a>
       <nav class="nav-links" aria-label="Primary">
+        <a id="to-geoflare" class="back-pill" href="http://127.0.0.1:8010/fires">&larr; Back to GeoFlare Fires</a>
         <span id="status-pill" class="status"><span class="status-dot"></span><span id="status-text">Connecting to the API</span></span>
         <a href="/docs" target="_blank" rel="noopener">Open the API reference</a>
         <div class="menu" id="theme-menu">
@@ -174,7 +175,7 @@
       <details class="disclosure disclosure-plain" id="predict-disclosure">
         <summary><h2 id="predict-title">Score a detection of your own</h2><span class="summary-hint">Click the map to place it</span></summary>
         <div class="disclosure-body">
-          <p class="lead">Set the detection values and the model returns the chance that its fire radiative power is at or above the severity threshold. Pixel size matters most: MODIS pixels are larger and carry more power than VIIRS pixels, so pick the sensor you mean. Weather for that day and place is matched from the nearest NASA POWER station when one is close enough.</p>
+          <p class="lead">Place the detection and the model returns the chance that its fire radiative power is at or above the severity threshold. Fill in what you know and leave the rest empty: the model was trained to handle missing values. Pixel size matters most, so pick the sensor if you know it. Weather for that day and place is matched from the nearest NASA POWER station when one is close enough.</p>
           <form id="predict-form" autocomplete="off">
             <div class="row-2">
               <label class="field"><span>Latitude</span><input type="number" id="p-lat" step="0.0001" min="-90" max="90" required></label>
@@ -187,13 +188,14 @@
             <div class="field"><span>Sensor</span>
               <div class="segmented" data-segmented id="sensor-seg">
                 <span class="segmented-thumb" aria-hidden="true"></span>
-                <label><input type="radio" name="sensor" value="viirs" checked><span>VIIRS, 375 m pixel</span></label>
+                <label><input type="radio" name="sensor" value="" checked><span>Not sure</span></label>
+                <label><input type="radio" name="sensor" value="viirs"><span>VIIRS, 375 m pixel</span></label>
                 <label><input type="radio" name="sensor" value="modis"><span>MODIS, 1 km pixel</span></label>
               </div>
             </div>
             <div class="row-3">
-              <label class="field"><span>Brightness, K</span><input type="number" id="p-brightness" step="0.1" min="1" value="320"></label>
-              <label class="field"><span>Confidence, %</span><input type="number" id="p-confidence" min="0" max="100" value="70"></label>
+              <label class="field"><span>Brightness, K</span><input type="number" id="p-brightness" step="0.1" min="1" placeholder="I don't know"></label>
+              <label class="field"><span>Confidence, %</span><input type="number" id="p-confidence" min="0" max="100" placeholder="I don't know"></label>
               <label class="field"><span>Type</span>
                 <select id="p-type">
                   <option value="0">Vegetation</option>
@@ -204,9 +206,10 @@
               </label>
             </div>
             <div class="row-2">
-              <label class="field"><span>Scan, km</span><input type="number" id="p-scan" step="0.01" min="0.1" value="0.38"></label>
-              <label class="field"><span>Track, km</span><input type="number" id="p-track" step="0.01" min="0.1" value="0.36"></label>
+              <label class="field"><span>Scan, km</span><input type="number" id="p-scan" step="0.01" min="0.1" placeholder="I don't know"></label>
+              <label class="field"><span>Track, km</span><input type="number" id="p-track" step="0.01" min="0.1" placeholder="I don't know"></label>
             </div>
+            <p class="hint">Don't know a value? Leave it empty. Picking a sensor fills in its pixel size.</p>
             <div class="actions">
               <button type="submit" class="btn btn-primary" id="predict-btn"><span class="btn-label">Score this detection</span></button>
             </div>
@@ -242,5 +245,9 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" crossorigin="anonymous"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.2/anime.min.js" crossorigin="anonymous"></script>
   <script src="app.js"></script>
+  <script>
+    /* Link back to the GeoFlare site on the same machine (port 8010). */
+    document.getElementById("to-geoflare").href = location.protocol + "//" + location.hostname + ":8010/fires#explore";
+  </script>
 </body>
 </html>

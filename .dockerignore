@@ -15,3 +15,5 @@ cleaned_data
 logs
 *.md
 !README.md
+# GeoFlare has its own image (geoflare/Dockerfile)
+geoflare

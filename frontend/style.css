@@ -1,4 +1,4 @@
-/* GeoData AI · Fire severity
+/* GeoFlare Fires · Fire severity
    Palettes: Graphite (neutral, blue control accent) and Forest (user palette:
    honeydew, muted teal, deep forest, punch red, flag red). Each palette has a
    light and a dark mode. Severity colours carry meaning; the accent is for
@@ -373,3 +373,9 @@ textarea#ask-input:disabled { opacity: 0.6; cursor: not-allowed; }
 .lookup.err { color: var(--severity-high); }
 .typing { display: inline-flex; gap: 4px; vertical-align: middle; margin-left: 6px; }
 .typing span { width: 5px; height: 5px; border-radius: 50%; background: var(--text-3); }
+
+.hint { margin: 4px 0 12px; font-size: 13px; color: var(--text-2, #6e6e73); }
+
+/* the way back to GeoFlare Fires */
+.nav-links > a.back-pill { background: var(--accent); color: #fff; padding: 7px 14px; border-radius: 999px; font-weight: 700; }
+.nav-links > a.back-pill:hover { text-decoration: none; filter: brightness(1.08); }

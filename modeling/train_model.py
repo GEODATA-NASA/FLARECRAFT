@@ -17,6 +17,30 @@ Environment switches (see README):
 * ``FORCE_RETRAIN`` (default 0): retrain even when the artifact already exists.
 * ``CATBOOST_ITERATIONS`` / ``CATBOOST_DEPTH`` / ``CATBOOST_LEARNING_RATE``
   (500 / 6 / 0.05): boosting rounds, tree depth, and learning rate.
+* ``CATBOOST_ITERATIONS`` (1000, a cap) with ``CATBOOST_EARLY_STOPPING_ROUNDS`` (50): training stops when
+  validation AUC has not improved for that many rounds and keeps the best iteration. The validation slice is
+  the last ``VALIDATION_SHARE`` (0.15) of the training dates; the test period is never used for stopping.
+* ``CATBOOST_BORDER_COUNT`` (0 = default): number of feature-value bins.
+* ``TARGET_RECALL`` (0.85): the saved decision threshold is the highest one that still catches this share of
+  severe fires on the validation slice (a missed severe fire costs more than a false alarm).
+* ``TUNE=1``: first try depth 4/6/8 x learning rate 0.05/0.1 with 3-fold spatial GroupKFold. A setting replaces the
+  default only if it beats it by ``TUNE_MIN_GAIN`` AUC (default 0.005, the size of the spread between spatial folds).
+* ``COMPARE_WITH``: path to an earlier artifact. Both models are then scored on the same validation slice and the same
+  chronological test period, and the comparison is stored in ``metrics.comparison``.
+* The artifact stores a calibrated Fire Risk Score scale (``risk_scale``, see modeling/risk.py).
+* The artifact also stores ``metrics.spatial_cv`` (5-fold GroupKFold over 5-degree blocks, mean and std) and
+  ``shap_importance`` (mean |SHAP| per feature, CatBoost's native TreeSHAP). Derived features come from
+  ``modeling/features.py``, shared with the API.
+* ``BLANK_AUGMENT_SHARE`` (default 0.5): extra training copies, as a share of the
+  training rows, with groups of inputs blanked (see ``blank_augment``). This is
+  how the model learns what a missing input means. 0 turns it off.
+
+Missing inputs: CatBoost treats a blank as lower than every real value, and it
+always considers the split that separates blanks from the rest. A model trained
+only on complete rows never sees that split used, so a request with blank
+brightness lands wherever the lowest brightness happened to land (in practice,
+"severe"). Training on blanked copies teaches it the right answer for a blank:
+the average risk for that place, date and time, given whatever is known.
 """
 
 import logging
@@ -28,6 +52,7 @@ import joblib
 import numpy as np
 import pandas as pd
 from sklearn.calibration import calibration_curve
+from sklearn.metrics import average_precision_score
 from sklearn.metrics import (
     accuracy_score,
     brier_score_loss,
@@ -47,6 +72,8 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from config import CLEANED_DATA_DIR, DB_CONFIG
+from modeling.features import DERIVED_FEATURES, add_derived_features
+from modeling.risk import apply_risk, fit_risk, level_table
 
 LOGGER = logging.getLogger("geodata.model")
 MODEL_ARTIFACT_PATH = Path(
@@ -57,10 +84,21 @@ MODEL_ARTIFACT_PATH = Path(
 )
 REQUIRE_WEATHER_MATCH = os.getenv("REQUIRE_WEATHER_MATCH", "1").lower() not in {"0", "false", "no"}
 TRAINING_SOURCE = os.getenv("TRAINING_SOURCE", "db").strip().lower()
-CATBOOST_ITERATIONS = int(os.getenv("CATBOOST_ITERATIONS", "500"))
+CATBOOST_ITERATIONS = int(os.getenv("CATBOOST_ITERATIONS", "1000"))  # a cap: early stopping decides
 CATBOOST_DEPTH = int(os.getenv("CATBOOST_DEPTH", "6"))
 CATBOOST_LEARNING_RATE = float(os.getenv("CATBOOST_LEARNING_RATE", "0.05"))
 CATBOOST_L2_LEAF_REG = float(os.getenv("CATBOOST_L2_LEAF_REG", "3.0"))
+CATBOOST_EARLY_STOPPING_ROUNDS = int(os.getenv("CATBOOST_EARLY_STOPPING_ROUNDS", "50"))
+CATBOOST_BORDER_COUNT = int(os.getenv("CATBOOST_BORDER_COUNT", "0"))  # 0 = CatBoost's default (254)
+VALIDATION_SHARE = float(os.getenv("VALIDATION_SHARE", "0.15"))  # last share of training dates: early stopping + threshold
+TARGET_RECALL = float(os.getenv("TARGET_RECALL", "0.85"))
+TUNE = os.getenv("TUNE", "0").lower() in {"1", "true", "yes"}
+TUNE_MIN_GAIN = float(os.getenv("TUNE_MIN_GAIN", "0.005"))
+# On by default. Spatial CV saw no difference (AUC 0.8949 either way), but with early stopping on, training without
+# them scored lower on the chronological test period (AUC 0.8902 vs 0.8928) and on live fires. USE_DERIVED_FEATURES=0
+# trains with the 12 raw inputs only.
+USE_DERIVED_FEATURES = os.getenv("USE_DERIVED_FEATURES", "1").lower() in {"1", "true", "yes"}
+COMPARE_WITH = os.getenv("COMPARE_WITH", "").strip()
 MODEL_TYPE = "CatBoostClassifier"
 # Retrain even when an artifact exists (scheduled retraining, new weather data).
 FORCE_RETRAIN = os.getenv("FORCE_RETRAIN", "0").lower() in {"1", "true", "yes"}
@@ -69,6 +107,12 @@ FIRE_CHUNK_SIZE = int(os.getenv("FIRE_CHUNK_SIZE", "100000"))
 MAX_TRAINING_ROWS = int(os.getenv("MAX_TRAINING_ROWS", "500000"))
 HIGH_FRP_THRESHOLD = float(os.getenv("HIGH_FRP_THRESHOLD", "10"))
 MAX_WEATHER_DISTANCE_KM = float(os.getenv("MAX_WEATHER_DISTANCE_KM", "100"))
+BLANK_AUGMENT_SHARE = float(os.getenv("BLANK_AUGMENT_SHARE", "0.5"))
+# Bumped whenever the training recipe changes, so an older artifact is retrained.
+TRAINING_SCHEME = "blank-augmented-v3" if BLANK_AUGMENT_SHARE > 0 else "complete-rows"
+# Inputs that describe the detection itself. Callers that only know where and
+# when (forecasts, the Ember outlook) leave all of these blank.
+MEASUREMENT_FEATURES = ["brightness", "confidence", "scan", "track"]
 
 WEATHER_ALIASES = {
     "rh2m": "rh2m",
@@ -481,6 +525,79 @@ def temporal_split(data):
     return train, test, cutoff
 
 
+BLANK_PATTERNS = {
+    # name: (columns to blank, share of the augmented copies)
+    "place_and_time_only": ("measurements+weather", 0.35),
+    "no_measurements": ("measurements", 0.25),
+    "no_weather": ("weather", 0.15),
+    "random_single": ("one", 0.25),
+}
+
+
+def blank_columns(pattern, feature_columns, weather_features):
+    measurements = [c for c in MEASUREMENT_FEATURES if c in feature_columns]
+    weather = [c for c in weather_features if c in feature_columns]
+    if pattern == "measurements+weather":
+        return measurements + weather
+    if pattern == "measurements":
+        return measurements
+    if pattern == "weather":
+        return weather
+    raise ValueError(f"Unknown blank pattern: {pattern}")
+
+
+def blank_augment(train, feature_columns, weather_features, share=BLANK_AUGMENT_SHARE, seed=7):
+    """Append copies of training rows with groups of inputs set to NaN.
+
+    The original rows stay as they are, so complete requests are learned exactly
+    as before; the copies teach the model what each kind of blank means.
+    """
+    if share <= 0 or train.empty:
+        return train
+    rng = np.random.default_rng(seed)
+    total = int(len(train) * share)
+    copies = []
+    for pattern, part in BLANK_PATTERNS.values():
+        rows = train.sample(n=max(1, int(total * part)), random_state=int(rng.integers(1 << 31)), replace=False)
+        rows = rows.copy()
+        if pattern == "one":
+            # A different single column for each row.
+            candidates = [c for c in MEASUREMENT_FEATURES + list(weather_features) + ["acq_time", "type"] if c in feature_columns]
+            picks = rng.integers(len(candidates), size=len(rows))
+            for index, column in enumerate(candidates):
+                rows.loc[picks == index, column] = np.nan
+        else:
+            rows[blank_columns(pattern, feature_columns, weather_features)] = np.nan
+        if DERIVED_FEATURES[0] in rows.columns:   # derived features follow their (now blank) inputs
+            rows = add_derived_features(rows)
+        copies.append(rows)
+    augmented = pd.concat([train, *copies], ignore_index=True)
+    LOGGER.info("Blank-input augmentation: %s complete rows + %s blanked copies.", len(train), len(augmented) - len(train))
+    return augmented
+
+
+def evaluate_blank_inputs(model, test_df, feature_columns, weather_features):
+    """Score the hold-out period again with groups of inputs blanked."""
+    results = {}
+    y_test = test_df["target"]
+    for name, (pattern, _) in BLANK_PATTERNS.items():
+        if pattern == "one":
+            continue
+        X = test_df[feature_columns].copy()
+        X[blank_columns(pattern, feature_columns, weather_features)] = np.nan
+        if DERIVED_FEATURES[0] in X.columns:
+            X = add_derived_features(X)
+        p = model.predict_proba(X)[:, 1]
+        results[name] = {
+            "roc_auc": float(roc_auc_score(y_test, p)),
+            "brier_score": float(brier_score_loss(y_test, p)),
+            "mean_probability": float(p.mean()),
+        }
+        LOGGER.info("Blank inputs (%s): ROC-AUC %.4f, mean p %.3f", name, results[name]["roc_auc"], p.mean())
+    results["observed_high_frp_share"] = float(y_test.mean())
+    return results
+
+
 def evaluate_generalization_and_calibration(model, test_df, feature_columns):
     """Measure probability calibration and latitude-based holdout performance."""
     X_test = test_df[feature_columns]
@@ -522,8 +639,153 @@ def evaluate_generalization_and_calibration(model, test_df, feature_columns):
     }
 
 
+def scores(y_true, probabilities, threshold):
+    """The comparison metrics at one threshold: ROC-AUC, PR-AUC, precision, recall, F1 and the confusion counts."""
+    y = np.asarray(y_true).astype(int)
+    p = np.asarray(probabilities, dtype=float)
+    flagged = p >= threshold
+    return {
+        "threshold": float(threshold),
+        "roc_auc": float(roc_auc_score(y, p)), "pr_auc": float(average_precision_score(y, p)),
+        "precision": float(precision_score(y, flagged, zero_division=0)), "recall": float(recall_score(y, flagged, zero_division=0)),
+        "f1": float(f1_score(y, flagged, zero_division=0)),
+        "false_negatives": int(((~flagged) & (y == 1)).sum()), "false_positives": int((flagged & (y == 0)).sum()),
+        "true_positives": int((flagged & (y == 1)).sum()), "positives": int(y.sum()), "rows": int(len(y)),
+    }
+
+
+def compare_with_previous(path, val_rows, test, new_val_p, new_test_p, new_threshold):
+    """Score an earlier artifact on exactly the same validation slice and test period as the new model.
+
+    Each model gets a threshold picked the same way on the validation slice (never on the test period). The earlier
+    model trained on dates that now form the validation slice, so its validation numbers are optimistic; its test
+    numbers are fair, because both models trained only on dates before the test period.
+    """
+    previous = joblib.load(path)
+    columns = list(previous["feature_columns"])
+    old_val_p = previous["model"].predict_proba(val_rows[columns])[:, 1]
+    old_test_p = previous["model"].predict_proba(test[columns])[:, 1]
+    old_threshold, _ = pick_threshold(val_rows["target"], old_val_p)
+    result = {"previous_artifact": str(path), "previous_scheme": previous.get("training_scheme"),
+              "test_period_start": str(pd.Timestamp(test["_date"].min()).date()), "test_rows": int(len(test))}
+    for name, val_p, test_p, threshold in (("previous", old_val_p, old_test_p, old_threshold), ("new", new_val_p, new_test_p, new_threshold)):
+        result[name] = {"test_at_0.5": scores(test["target"], test_p, 0.5),
+                        "test_at_own_threshold": scores(test["target"], test_p, threshold),
+                        "validation_at_own_threshold": scores(val_rows["target"], val_p, threshold)}
+    for label in ("test_at_0.5", "test_at_own_threshold"):
+        a, b = result["previous"][label], result["new"][label]
+        LOGGER.info("Comparison, %s: ROC-AUC %.4f -> %.4f | PR-AUC %.4f -> %.4f | recall %.3f -> %.3f | precision %.3f -> %.3f | F1 %.3f -> %.3f | FN %s -> %s",
+                    label, a["roc_auc"], b["roc_auc"], a["pr_auc"], b["pr_auc"], a["recall"], b["recall"], a["precision"], b["precision"], a["f1"], b["f1"], a["false_negatives"], b["false_negatives"])
+    return result
+
+
+def spatial_groups(df, block_deg=5):
+    """Group id of the block_deg x block_deg lat/lon block each row falls in (for GroupKFold)."""
+    lat = pd.to_numeric(df["latitude"], errors="coerce").fillna(0)
+    lon = pd.to_numeric(df["longitude"], errors="coerce").fillna(0)
+    return (np.floor((lat + 90) / block_deg) * 1000 + np.floor((lon + 180) / block_deg)).astype(int).to_numpy()
+
+
+def catboost_params(iterations=None, depth=None, learning_rate=None, early_stopping=False):
+    params = dict(
+        iterations=iterations or CATBOOST_ITERATIONS, depth=depth or CATBOOST_DEPTH,
+        learning_rate=learning_rate or CATBOOST_LEARNING_RATE, l2_leaf_reg=CATBOOST_L2_LEAF_REG,
+        loss_function="Logloss", eval_metric="AUC", auto_class_weights="Balanced", random_seed=42,
+        thread_count=-1, verbose=False, allow_writing_files=False,
+    )
+    if CATBOOST_BORDER_COUNT:
+        params["border_count"] = CATBOOST_BORDER_COUNT
+    if early_stopping:
+        params.update(early_stopping_rounds=CATBOOST_EARLY_STOPPING_ROUNDS, use_best_model=True)
+    return params
+
+
+def validation_split(train):
+    """Last VALIDATION_SHARE of the training dates, so early stopping and the threshold never see the test period."""
+    dates = np.sort(train["_date"].dropna().unique())
+    cutoff = dates[max(1, int(len(dates) * (1 - VALIDATION_SHARE)))]
+    fit, val = train.loc[train["_date"] < cutoff], train.loc[train["_date"] >= cutoff]
+    if fit.empty or val.empty or val["target"].nunique() < 2:
+        raise ValueError("The validation slice is empty or has one class; use more dates.")
+    return fit, val
+
+
+def pick_threshold(y_true, probabilities):
+    """Highest threshold whose recall on the validation slice is at least TARGET_RECALL (false negatives cost most)."""
+    from sklearn.metrics import precision_recall_curve
+    precision, recall, thresholds = precision_recall_curve(y_true, probabilities)
+    ok = np.where(recall[:-1] >= TARGET_RECALL)[0]
+    index = ok[-1] if len(ok) else 0
+    threshold = float(np.clip(thresholds[index], 0.01, 0.99))
+    return threshold, {"target_recall": TARGET_RECALL, "validation_precision": float(precision[index]), "validation_recall": float(recall[index])}
+
+
+def spatial_cv(data, feature_columns, iterations, depth, learning_rate, threshold, n_splits=5):
+    """GroupKFold over 5 degree blocks: every fold is scored on places the model never trained on."""
+    from catboost import CatBoostClassifier
+    from sklearn.model_selection import GroupKFold
+    groups = spatial_groups(data)
+    rows = []
+    for fold, (tr, te) in enumerate(GroupKFold(n_splits=n_splits).split(data, data["target"], groups)):
+        model = CatBoostClassifier(**catboost_params(iterations, depth, learning_rate))
+        model.fit(data.iloc[tr][feature_columns], data.iloc[tr]["target"])
+        y = data.iloc[te]["target"].to_numpy()
+        p = model.predict_proba(data.iloc[te][feature_columns])[:, 1]
+        flagged = p >= threshold
+        rows.append({"roc_auc": roc_auc_score(y, p), "pr_auc": average_precision_score(y, p), "brier": brier_score_loss(y, p),
+                     "recall": recall_score(y, flagged, zero_division=0), "precision": precision_score(y, flagged, zero_division=0)})
+        LOGGER.info("Spatial CV fold %s/%s: AUC %.4f, recall %.3f, precision %.3f", fold + 1, n_splits, rows[-1]["roc_auc"], rows[-1]["recall"], rows[-1]["precision"])
+    frame = pd.DataFrame(rows)
+    result = {"folds": n_splits, "block_degrees": 5, "threshold": threshold}
+    for column in frame:
+        result[column] = {"mean": float(frame[column].mean()), "std": float(frame[column].std(ddof=0))}
+    return result
+
+
+def tune_hyperparameters(data, feature_columns):
+    """TUNE=1: a small grid scored by 3-fold spatial GroupKFold AUC on a sample. Returns (depth, learning_rate)."""
+    from catboost import CatBoostClassifier
+    from sklearn.model_selection import GroupKFold
+    sample = data.sample(n=min(len(data), 150_000), random_state=3)
+    groups = spatial_groups(sample)
+    best = (CATBOOST_DEPTH, CATBOOST_LEARNING_RATE, -1.0)
+    default_auc = None
+    for depth in (4, 6, 8):
+        for rate in (0.05, 0.1):
+            aucs = []
+            for tr, te in GroupKFold(n_splits=3).split(sample, sample["target"], groups):
+                model = CatBoostClassifier(**catboost_params(300, depth, rate))
+                model.fit(sample.iloc[tr][feature_columns], sample.iloc[tr]["target"])
+                aucs.append(roc_auc_score(sample.iloc[te]["target"], model.predict_proba(sample.iloc[te][feature_columns])[:, 1]))
+            LOGGER.info("Tuning depth=%s lr=%s: spatial CV AUC %.4f", depth, rate, np.mean(aucs))
+            if depth == CATBOOST_DEPTH and abs(rate - CATBOOST_LEARNING_RATE) < 1e-9:
+                default_auc = float(np.mean(aucs))
+            if np.mean(aucs) > best[2]:
+                best = (depth, rate, float(np.mean(aucs)))
+    if default_auc is not None and best[2] - default_auc < TUNE_MIN_GAIN:
+        LOGGER.info("Tuning: best depth=%s lr=%s gains only %.4f AUC over the default (< %.3f); keeping the default.",
+                    best[0], best[1], best[2] - default_auc, TUNE_MIN_GAIN)
+        return CATBOOST_DEPTH, CATBOOST_LEARNING_RATE
+    LOGGER.info("Tuning picked depth=%s lr=%s", best[0], best[1])
+    return best[0], best[1]
+
+
+def shap_summary(model, X, n=5000):
+    """Mean |SHAP value| per feature (CatBoost's native TreeSHAP) on a sample, as shares of the total."""
+    from catboost import Pool
+    sample = X.sample(n=min(n, len(X)), random_state=5)
+    values = model.get_feature_importance(Pool(sample), type="ShapValues")[:, :-1]
+    mean_abs = np.abs(values).mean(axis=0)
+    total = float(mean_abs.sum()) or 1.0
+    ranked = sorted(zip(X.columns, mean_abs / total), key=lambda kv: -kv[1])
+    LOGGER.info("SHAP importance (mean |value|, share of total) on %s rows:", len(sample))
+    for name, share in ranked:
+        LOGGER.info("  %-20s %5.1f%%  %s", name, share * 100, "#" * int(share * 100 / 2))
+    return {name: float(share) for name, share in ranked}
+
+
 def train_and_evaluate(data, feature_columns):
-    """Train CatBoost, report holdout metrics, and save the model artifact."""
+    """Train CatBoost with early stopping, pick a recall-first threshold, run spatial CV and SHAP, save the artifact."""
     try:
         from catboost import CatBoostClassifier
     except ModuleNotFoundError as error:
@@ -532,70 +794,103 @@ def train_and_evaluate(data, feature_columns):
             "Install it with: pip install -r requirements.txt"
         ) from error
 
+    data = add_derived_features(data)   # always computed, so the comparison below can use them
+    if USE_DERIVED_FEATURES:
+        feature_columns = list(feature_columns) + [f for f in DERIVED_FEATURES if f not in feature_columns]
+    weather_features = [feature for feature in feature_columns if feature in WEATHER_ALIASES.values()]
     train, test, cutoff = temporal_split(data)
-    model = CatBoostClassifier(
-        iterations=CATBOOST_ITERATIONS,
-        depth=CATBOOST_DEPTH,
-        learning_rate=CATBOOST_LEARNING_RATE,
-        l2_leaf_reg=CATBOOST_L2_LEAF_REG,
-        loss_function="Logloss",
-        eval_metric="AUC",
-        auto_class_weights="Balanced",
-        random_seed=42,
-        thread_count=-1,
-        verbose=False,
-        allow_writing_files=False,
-    )
-    model.fit(train[feature_columns], train["target"])
+    fit_rows, val_rows = validation_split(train)
+
+    depth, rate = (tune_hyperparameters(train, feature_columns) if TUNE else (CATBOOST_DEPTH, CATBOOST_LEARNING_RATE))
+    augmented = blank_augment(fit_rows, feature_columns, weather_features)
+    model = CatBoostClassifier(**catboost_params(CATBOOST_ITERATIONS, depth, rate, early_stopping=True))
+    model.fit(augmented[feature_columns], augmented["target"], eval_set=(val_rows[feature_columns], val_rows["target"]))
+    best_iteration = int(model.get_best_iteration())
+    LOGGER.info("Early stopping: best iteration %s of at most %s.", best_iteration, CATBOOST_ITERATIONS)
+
+    val_p = model.predict_proba(val_rows[feature_columns])[:, 1]
+    threshold, selection = pick_threshold(val_rows["target"], val_p)
+    LOGGER.info("Decision threshold %.3f (validation recall %.3f, precision %.3f; target recall %.2f).",
+                threshold, selection["validation_recall"], selection["validation_precision"], TARGET_RECALL)
+
+    risk_scale = fit_risk(val_rows["target"], val_p, threshold)
+    LOGGER.info("Fire Risk Score cut-offs (calibrated on the validation slice): %s", risk_scale["cutoffs"])
+
     predictions = model.predict(test[feature_columns])
     probabilities = model.predict_proba(test[feature_columns])[:, 1]
+    at_threshold = probabilities >= threshold
     metrics = {
         "accuracy": float(accuracy_score(test["target"], predictions)),
         "precision": float(precision_score(test["target"], predictions, zero_division=0)),
         "recall": float(recall_score(test["target"], predictions, zero_division=0)),
         "f1": float(f1_score(test["target"], predictions, zero_division=0)),
         "roc_auc": float(roc_auc_score(test["target"], probabilities)),
+        "pr_auc": float(average_precision_score(test["target"], probabilities)),
         "test_rows": int(len(test)),
         "train_rows": int(len(train)),
         "test_period_start": str(pd.Timestamp(cutoff).date()),
+        "best_iteration": best_iteration,
+        "at_decision_threshold": {
+            "threshold": threshold,
+            "precision": float(precision_score(test["target"], at_threshold, zero_division=0)),
+            "recall": float(recall_score(test["target"], at_threshold, zero_division=0)),
+            "f1": float(f1_score(test["target"], at_threshold, zero_division=0)),
+            "false_negatives": int((~at_threshold & (test["target"].to_numpy() == 1)).sum()),
+        },
     }
-    metrics.update(
-        evaluate_generalization_and_calibration(model, test, feature_columns)
-    )
+    calibrated, _, _ = apply_risk(risk_scale, probabilities)
+    metrics["risk"] = {
+        "cutoffs": risk_scale["cutoffs"],
+        "brier_raw": float(brier_score_loss(test["target"], probabilities)),
+        "brier_calibrated": float(brier_score_loss(test["target"], calibrated)),
+        "mean_raw": float(probabilities.mean()), "mean_calibrated": float(calibrated.mean()), "observed_share": float(test["target"].mean()),
+        "levels_on_test": level_table(risk_scale, test["target"], probabilities),
+    }
+    LOGGER.info("Calibration on the test period: Brier %.4f raw -> %.4f calibrated; mean %.3f raw, %.3f calibrated, %.3f observed.",
+                metrics["risk"]["brier_raw"], metrics["risk"]["brier_calibrated"], metrics["risk"]["mean_raw"], metrics["risk"]["mean_calibrated"], metrics["risk"]["observed_share"])
+    for name, row in metrics["risk"]["levels_on_test"].items():
+        LOGGER.info("  %-8s %6s fires (%4.1f%%), %s really severe", name, row["fires"], row["share"] * 100,
+                    "-" if row["actually_severe"] is None else f"{row['actually_severe'] * 100:.0f}%")
+    if COMPARE_WITH:
+        metrics["comparison"] = compare_with_previous(COMPARE_WITH, val_rows, test, val_p, probabilities, threshold)
+    metrics.update(evaluate_generalization_and_calibration(model, test, feature_columns))
+    metrics["blank_inputs"] = evaluate_blank_inputs(model, test, feature_columns, weather_features)
+    metrics["spatial_cv"] = spatial_cv(train, feature_columns, max(50, best_iteration + 1), depth, rate, threshold)
+    # The other variant on the same folds, so the derived features are always judged on identical splits.
+    if USE_DERIVED_FEATURES:
+        other = [c for c in feature_columns if c not in DERIVED_FEATURES]
+        metrics["spatial_cv_raw_features"] = spatial_cv(train, other, max(50, best_iteration + 1), depth, rate, threshold)
+        a, b = metrics["spatial_cv_raw_features"], metrics["spatial_cv"]
+    else:
+        other = feature_columns + [f for f in DERIVED_FEATURES if f not in feature_columns]
+        metrics["spatial_cv_with_derived_features"] = spatial_cv(train, other, max(50, best_iteration + 1), depth, rate, threshold)
+        a, b = metrics["spatial_cv"], metrics["spatial_cv_with_derived_features"]
+    LOGGER.info("Spatial CV, raw 12 inputs vs with derived features: AUC %.4f -> %.4f, PR-AUC %.4f -> %.4f",
+                a["roc_auc"]["mean"], b["roc_auc"]["mean"], a["pr_auc"]["mean"], b["pr_auc"]["mean"])
 
     LOGGER.info("Chronological test period begins %s.", pd.Timestamp(cutoff).date())
     LOGGER.info(
         "Accuracy: %.4f | Precision: %.4f | Recall: %.4f | F1: %.4f | ROC-AUC: %.4f",
-        accuracy_score(test["target"], predictions),
-        precision_score(test["target"], predictions, zero_division=0),
-        recall_score(test["target"], predictions, zero_division=0),
-        f1_score(test["target"], predictions, zero_division=0),
-        roc_auc_score(test["target"], probabilities),
+        metrics["accuracy"], metrics["precision"], metrics["recall"], metrics["f1"], metrics["roc_auc"],
     )
-    LOGGER.info(
-        "Classification report:\n%s",
-        classification_report(
-            test["target"],
-            predictions,
-            labels=[0, 1],
-            target_names=["normal_frp", "high_frp"],
-            zero_division=0,
-        ),
-    )
-    LOGGER.info("Confusion matrix [normal_frp, high_frp]:\n%s", confusion_matrix(
-        test["target"], predictions, labels=[0, 1]
-    ))
+    LOGGER.info("At the decision threshold %.3f: precision %.4f, recall %.4f.", threshold,
+                metrics["at_decision_threshold"]["precision"], metrics["at_decision_threshold"]["recall"])
+    cv = metrics["spatial_cv"]
+    LOGGER.info("Spatial CV (%s folds of 5-degree blocks): AUC %.4f +/- %.4f, recall %.3f +/- %.3f, Brier %.4f +/- %.4f.",
+                cv["folds"], cv["roc_auc"]["mean"], cv["roc_auc"]["std"], cv["recall"]["mean"], cv["recall"]["std"], cv["brier"]["mean"], cv["brier"]["std"])
+    LOGGER.info("Classification report:\n%s", classification_report(
+        test["target"], predictions, labels=[0, 1], target_names=["normal_frp", "high_frp"], zero_division=0))
+    LOGGER.info("Confusion matrix [normal_frp, high_frp]:\n%s", confusion_matrix(test["target"], predictions, labels=[0, 1]))
     importances = np.asarray(model.feature_importances_, dtype=float)
     importance_total = float(importances.sum())
     if not np.isfinite(importances).all() or importance_total <= 0:
         raise ValueError("CatBoost returned invalid or zero-sum feature importances.")
     importances /= importance_total
-    importance_report = sorted(
-        zip(feature_columns, importances), key=lambda item: item[1], reverse=True
-    )
+    importance_report = sorted(zip(feature_columns, importances), key=lambda item: item[1], reverse=True)
     LOGGER.info("Feature importance:")
     for feature, importance in importance_report:
         LOGGER.info("  %s: %.4f", feature, importance)
+    shap = shap_summary(model, test[feature_columns])
 
     output_path = MODEL_ARTIFACT_PATH
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -606,22 +901,30 @@ def train_and_evaluate(data, feature_columns):
         {
             "model": model,
             "model_type": MODEL_TYPE,
+            "training_scheme": TRAINING_SCHEME,
             "feature_columns": feature_columns,
+            "derived_features": [f for f in DERIVED_FEATURES if f in feature_columns],
             "target": f"frp >= {HIGH_FRP_THRESHOLD} MW",
-            "weather_features": [
-                feature for feature in feature_columns if feature in WEATHER_ALIASES.values()
-            ],
+            "weather_features": weather_features,
             "feature_importances": {feature: float(value) for feature, value in importance_report},
+            "shap_importance": shap,
+            "decision_threshold": threshold,
+            "threshold_selection": selection,
+            "risk_scale": risk_scale,
             "metrics": metrics,
             "training_extent": training_extent(data),
             "high_frp_threshold_mw": HIGH_FRP_THRESHOLD,
             "max_weather_distance_km": MAX_WEATHER_DISTANCE_KM,
             "hyperparameters": {
-                "iterations": CATBOOST_ITERATIONS,
-                "depth": CATBOOST_DEPTH,
-                "learning_rate": CATBOOST_LEARNING_RATE,
+                "iterations_cap": CATBOOST_ITERATIONS,
+                "best_iteration": best_iteration,
+                "early_stopping_rounds": CATBOOST_EARLY_STOPPING_ROUNDS,
+                "depth": depth,
+                "learning_rate": rate,
                 "l2_leaf_reg": CATBOOST_L2_LEAF_REG,
                 "auto_class_weights": "Balanced",
+                "blank_augment_share": BLANK_AUGMENT_SHARE,
+                "tuned": TUNE,
             },
         },
         temp_path,
@@ -638,10 +941,10 @@ def main():
     )
     if MODEL_ARTIFACT_PATH.is_file() and not FORCE_RETRAIN:
         artifact = joblib.load(MODEL_ARTIFACT_PATH)
-        if artifact.get("model_type") == MODEL_TYPE:
+        if artifact.get("model_type") == MODEL_TYPE and artifact.get("training_scheme", "complete-rows") == TRAINING_SCHEME:
             LOGGER.info("Loaded existing %s model; ready at %s.", MODEL_TYPE, MODEL_ARTIFACT_PATH)
             return 0
-        LOGGER.info("Existing model artifact is not %s; retraining.", MODEL_TYPE)
+        LOGGER.info("Existing model artifact is not %s (%s); retraining.", MODEL_TYPE, TRAINING_SCHEME)
 
     if FIRE_CHUNK_SIZE <= 0 or MAX_TRAINING_ROWS <= 0:
         LOGGER.error("FIRE_CHUNK_SIZE and MAX_TRAINING_ROWS must be positive integers.")

@@ -1,4 +1,4 @@
-/* GeoData AI · Fire severity map. Vanilla JS, Leaflet and anime.js against the
+/* GeoFlare Fires · standalone fire severity map (GeoData AI service). Vanilla JS, Leaflet and anime.js against the
    FastAPI service on the same origin. Motion marks state changes only and is
    disabled under prefers-reduced-motion. Colours are read from CSS custom
    properties so palettes and dark mode apply to the map and chart too. */
@@ -259,11 +259,12 @@
     const time = props.acq_time != null ? String(props.acq_time).padStart(4, "0").replace(/(\d\d)(\d\d)/, "$1:$2") + " UTC" : "";
     const rows = [
       ["Measured FRP", props.frp != null ? `${props.frp} MW` : "Not recorded"],
+      ["Fire Risk Score", props.risk_score != null ? `${Math.round(props.risk_score)} / 100 · ${props.risk_level}` : "Not available"],
       ["Chance of severe", props.high_frp_probability != null ? `${(props.high_frp_probability * 100).toFixed(1)}%` : "Not scored"],
       ["Brightness", props.brightness != null ? `${props.brightness} K` : "Not recorded"],
       ["Confidence", props.confidence != null ? `${props.confidence}%` : "Not recorded"],
       ["Satellite", `${SOURCE_LABELS[props.satellite_source] || props.satellite_source || "Unknown"}, ${props.daynight === "N" ? "night" : "day"} pass`],
-      ["Weather", props.weather_matched ? "Matched to a station" : "No station nearby, values imputed"],
+      ["Weather", props.weather_matched ? "Matched to a station" : "No station nearby, scored without weather"],
     ];
     const action = index != null ? `<button type="button" class="pop-action" data-score="${index}">Score this detection with its own values</button>` : "";
     return `<p class="pop-title">${props.acq_date ? dateLabel(props.acq_date) : "Detection"} ${time}</p><p class="pop-sub">${lat.toFixed(4)}, ${lon.toFixed(4)}</p>${tag}<table>${rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join("")}</table>${action}`;
@@ -437,7 +438,7 @@
       const box = el("predict-result"), first = box.hidden;
       box.hidden = false;
       box.classList.toggle("high", result.is_high_frp);
-      el("result-label").textContent = result.is_high_frp ? "Likely a severe fire" : "Likely a normal fire";
+      el("result-label").textContent = (result.is_high_frp ? "Likely a severe fire" : "Likely a normal fire") + (result.risk_level ? ` · ${result.risk_level} risk (${Math.round(result.risk_score)}/100)` : "");
       el("result-sub").textContent = `Severe means ${result.high_frp_threshold_mw} MW or more. Cut‑off at ${Math.round(result.decision_threshold * 100)}%.`;
       el("result-threshold").style.left = `${result.decision_threshold * 100}%`;
       const caution = el("result-caution");
@@ -449,8 +450,12 @@
       }
       const w = result.weather;
       const radius = (state.health && state.health.weather && state.health.weather.max_distance_km) || 100;
-      const kv = [["Weather", w.matched ? `Station ${w.distance_km} km away, same day` : `No station within ${radius} km that day, values imputed`]];
-      kv.unshift(["Scored as", `${checkedValue("sensor") === "modis" ? "MODIS" : "VIIRS"} pixel ${body.scan} × ${body.track} km, ${body.brightness} K, confidence ${body.confidence}%, ${dateLabel(body.acq_date)}`]);
+      const kv = [["Weather", w.matched ? `Station ${w.distance_km} km away, same day` : `No station within ${radius} km that day, scored without weather`]];
+      const known = (v, unit) => (v == null ? "unknown" : `${v}${unit}`);
+      const sensorName = { modis: "MODIS", viirs: "VIIRS" }[checkedValue("sensor")] || "Sensor not given";
+      kv.unshift(["Scored as", `${sensorName}, pixel ${known(body.scan, "")} × ${known(body.track, " km")}, brightness ${known(body.brightness, " K")}, confidence ${known(body.confidence, "%")}, ${dateLabel(body.acq_date)}`]);
+      const blanks = ["brightness", "confidence", "scan", "track"].filter((k) => body[k] == null);
+      if (blanks.length) kv.push(["Left empty", `${blanks.join(", ")}: the model scores it from what it knows`]);
       if (w.matched) kv.push(["Humidity", `${w.rh2m ?? "Not recorded"} %`], ["Precipitation", `${w.prectotcorr ?? "Not recorded"} mm`], ["Soil wetness", `${w.gwettop ?? "Not recorded"}`]);
       el("result-weather").innerHTML = kv.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
       if (first) tween({ targets: box, opacity: [0, 1], translateY: [8, 0], duration: 360, easing: "easeOutCubic" });
@@ -594,9 +599,9 @@
   el("color-seg").addEventListener("change", () => { if (state.features.length) renderFeatures(state.features, false); else renderLegend(checkedValue("color-mode")); });
   el("predict-form").addEventListener("submit", runPrediction);
   el("sensor-seg").addEventListener("change", () => {
-    const pixels = SENSOR_PIXELS[checkedValue("sensor")] || SENSOR_PIXELS.viirs;
-    el("p-scan").value = pixels.scan;
-    el("p-track").value = pixels.track;
+    const pixels = SENSOR_PIXELS[checkedValue("sensor")];
+    el("p-scan").value = pixels ? pixels.scan : "";
+    el("p-track").value = pixels ? pixels.track : "";
   });
   el("toggle-sidebar").addEventListener("click", toggleSidebar);
   window.addEventListener("resize", () => { if (state.chartRows.length) drawChart(); });

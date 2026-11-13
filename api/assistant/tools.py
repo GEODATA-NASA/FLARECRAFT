@@ -283,7 +283,7 @@ class ToolExecutor:
             "weather_distance_km": _round(result["weather_distance_km"]) if pd.notna(result["weather_distance_km"]) else None,
             "weather": weather,
             "in_training_extent": predictor.in_training_extent(latitude, longitude, day),
-            "missing_inputs_imputed": [k for k in ("acq_time", "brightness", "confidence", "scan", "track", "type") if k not in row],
+            "missing_inputs": [k for k in ("acq_time", "brightness", "confidence", "scan", "track", "type") if k not in row],
         }
 
     def _tool_get_model_info(self, _args):
