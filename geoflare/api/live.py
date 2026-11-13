@@ -187,7 +187,7 @@ class Live:
         ranked["country"] = self.country_of(ranked.cell)
         ranked["key"] = ranked.country.fillna(ranked.cell.astype(str))
         ranked = ranked.drop_duplicates("key").head(top)
-        return [{"lat": round(r.lat, 2), "lon": round(r.lon, 2), "frp": round(float(r.frp_max), 1), "n": int(r.n), "country": r.country}
+        return [{"lat": round(r.lat, 2), "lon": round(r.lon, 2), "frp": round(float(r.frp_max), 1), "n": int(r.n), "country": r.country if isinstance(r.country, str) else None}   # a fire at sea has no country; NaN is not valid JSON
                 for r in ranked.itertuples()]
 
     @staticmethod

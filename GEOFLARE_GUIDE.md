@@ -107,6 +107,7 @@ The GeoData AI service on port 8000 is only needed for severity scores and the F
 geoflare\start.cmd            :: the story, then the apps
 geoflare\start.cmd fires      :: GeoFlare Fires (Past: history, 2025 archive. Now: today, next 4 weeks)
 geoflare\start.cmd air        :: GeoFlare Air
+geoflare\start.cmd present    :: the live story for presenting (press Space to step, N for the Arabic script window)
 ```
 
 **Or start both services by hand**, each in its own window:

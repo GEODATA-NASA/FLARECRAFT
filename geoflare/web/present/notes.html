@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GeoFlare · script</title>
+  <style>
+    :root { --bg: #111318; --surface: #1C1F27; --text: #F5F5F7; --sub: #A1A1A6; --line: #2A303B; --ember: #FF8A3D; }
+    @media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) { --bg: #F5F5F7; --surface: #FFFFFF; --text: #1D1D1F; --sub: #6E6E73; --line: #D2D2D7; --ember: #C2410C; } }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 22px/1.9 "Segoe UI", Tahoma, sans-serif; padding: 20px 16px 60px; }
+    header { display: flex; gap: 14px; align-items: baseline; flex-wrap: wrap; padding-bottom: 12px; border-bottom: 1px solid var(--line); margin-bottom: 14px; }
+    #name { font-size: 26px; font-weight: 700; direction: ltr; }
+    #who { background: var(--ember); color: #fff; border-radius: 999px; padding: 0 16px; font-size: 18px; font-weight: 700; }
+    #clock { margin-inline-start: auto; font-variant-numeric: tabular-nums; font-size: 30px; font-weight: 700; direction: ltr; }
+    #press { color: var(--sub); font-size: 16px; direction: ltr; }
+    p { background: var(--surface); border-radius: 16px; padding: 12px 18px; margin: 10px 0; opacity: .42; border-inline-start: 6px solid transparent; }
+    p.now { opacity: 1; border-inline-start-color: var(--ember); font-size: 26px; }
+    p.done { opacity: .28; }
+    #wait { color: var(--sub); font-size: 18px; }
+  </style>
+</head>
+<body>
+<header><span id="name">GeoFlare</span><span id="who"></span><span id="press"></span><span id="clock">0:00</span></header>
+<div id="lines"><div id="wait">افتح الـ stage على الشاشة التانية ودوس N منها. الشباك ده بيتابعها لوحده.</div></div>
+<script src="/present/script.js"></script>
+<script>
+  // Follows the stage: the same browser tells this window which scene and which press it is on.
+  const chan = new BroadcastChannel("geoflare-present");
+  let started = null;
+  const bidi = (t) => t.replace(/([A-Za-z][A-Za-z0-9 .:/+\-']*[A-Za-z0-9]|[A-Za-z])/g, '<bdi dir="ltr">$1</bdi>');
+  chan.onmessage = (e) => {
+    const { scene, beat } = e.data || {}, s = SCRIPT[scene];
+    if (!s) return;
+    started = e.data.started;
+    document.getElementById("name").textContent = scene;
+    document.getElementById("who").textContent = s.who; document.getElementById("who").style.display = s.who ? "" : "none";
+    document.getElementById("press").textContent = `press ${beat} of ${s.lines.length - 1}`;
+    document.getElementById("lines").innerHTML = s.lines.map((l, i) => `<p class="${i === beat ? "now" : i < beat ? "done" : ""}">${bidi(l)}</p>`).join("");
+    const now = document.querySelector("p.now"); if (now) now.scrollIntoView({ block: "center", behavior: "smooth" });
+  };
+  chan.postMessage("hello");
+  setInterval(() => { if (!started) return; const t = Math.floor((Date.now() - started) / 1000); document.getElementById("clock").textContent = `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`; }, 500);
+</script>
+</body>
+</html>

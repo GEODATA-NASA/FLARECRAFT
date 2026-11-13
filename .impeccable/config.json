@@ -1,0 +1,26 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "dark-glow",
+        "value": "*",
+        "files": [
+          "geoflare/web/present/index.html"
+        ],
+        "createdAt": "2026-11-13T10:31:39.997Z",
+        "reason": "Claude: the two remaining glows are literal light in a fire story (the opening ember that becomes Flick, and the spotlight frame); decorative glows were removed"
+      },
+      {
+        "rule": "marquee",
+        "value": "*",
+        "files": [
+          "geoflare/web/present/index.html"
+        ],
+        "createdAt": "2026-11-13T10:32:27.295Z",
+        "reason": "Claude: no scrolling content on the stage; the match is looping line animations in the app's existing style.css (Air precaution drawings), linked only for Flick's expressions and not used here"
+      }
+    ]
+  }
+}

@@ -58,4 +58,6 @@ echo  GeoFlare is starting on %BASE%
 echo  Fires: %BASE%fires   Air: %BASE%air
 echo  Keep this window open while you use it. Close it to stop.
 echo.
-".venv\Scripts\python.exe" -m uvicorn api.main:app --host 127.0.0.1 --port 8010 --log-level warning
+rem GEOFLARE_HOST: 127.0.0.1 = this laptop only (the default); share.cmd sets 0.0.0.0 so another laptop on the same network can open it.
+if not defined GEOFLARE_HOST set "GEOFLARE_HOST=127.0.0.1"
+".venv\Scripts\python.exe" -m uvicorn api.main:app --host %GEOFLARE_HOST% --port 8010 --log-level warning
