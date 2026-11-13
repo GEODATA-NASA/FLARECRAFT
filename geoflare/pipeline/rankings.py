@@ -13,19 +13,18 @@ country's density. Places under MIN_POPULATION (Antarctica, empty territories) a
 """
 
 import json
-import os
 import sys
 from pathlib import Path
 
 import duckdb
 import pandas as pd
 
-from pipeline.config import CELL_DEG, DATA_DIR, N_COLS, ROOT
+from pipeline.config import CELL_DEG, CLEANED_FIRES_FILE, GEONAMES_FILE, N_COLS, PRODUCT_DIR
 
 FIRES_CSV = (Path(sys.argv[1]) if len(sys.argv) > 1
-             else Path(os.getenv("CLEANED_DATA_DIR", ROOT.parent / "cleaned_data")) / "cleaned_master_fires.csv")
-PRODUCT = DATA_DIR / "product"
-GEONAMES = DATA_DIR / "ref" / "countryInfo.txt"
+             else CLEANED_FIRES_FILE)
+PRODUCT = PRODUCT_DIR
+GEONAMES = GEONAMES_FILE
 OUT = PRODUCT / "rankings.json"
 YEAR = 2025
 MIN_AREA_KM2 = 10_000

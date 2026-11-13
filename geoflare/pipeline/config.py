@@ -6,6 +6,42 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 ARCHIVE_DIR = Path(os.getenv("FIRMS_ARCHIVE_DIR", ROOT.parent / "firms_archive" / "zips"))
 DATA_DIR = Path(os.getenv("EMBER_DATA_DIR", ROOT / "data"))
+PROJECT_ROOT = ROOT.parent
+CLEANED_DATA_DIR = Path(os.getenv("CLEANED_DATA_DIR", PROJECT_ROOT / "cleaned_data"))
+
+AGG_DIR = DATA_DIR / "agg"
+WEEKLY_DIR = DATA_DIR / "weekly"
+PRODUCT_DIR = DATA_DIR / "product"
+REFERENCE_DIR = DATA_DIR / "ref"
+MODEL_DIR = DATA_DIR / "models"
+LIVE_DIR = DATA_DIR / "live"
+WEB_DIR = ROOT / "web"
+CLEANED_FIRES_FILE = CLEANED_DATA_DIR / "cleaned_master_fires.csv"
+GEONAMES_FILE = REFERENCE_DIR / "countryInfo.txt"
+
+
+def archive_file(sensor, year):
+    return ARCHIVE_DIR / f"{sensor}_{year}_all_countries.zip"
+
+
+def aggregate_dir(source="agg"):
+    return AGG_DIR if source == "agg" else DATA_DIR / source
+
+
+def aggregate_sensor_dir(sensor, source="agg"):
+    return aggregate_dir(source) / sensor
+
+
+def aggregate_file(sensor, year, source="agg"):
+    return aggregate_sensor_dir(sensor, source) / f"{year}.parquet"
+
+
+def weekly_cache_file(sensor, source="agg"):
+    return WEEKLY_DIR / source / f"{sensor}.parquet"
+
+
+def product_dir(source="agg"):
+    return PRODUCT_DIR if source == "agg" else DATA_DIR / f"product-{source}"
 
 # Years published in the FIRMS yearly country archive.
 # MODIS starts Nov 2000 (Terra); VIIRS S-NPP Jan 2012; VIIRS NOAA-20 (JPSS-1) 2018.

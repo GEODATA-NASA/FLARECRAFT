@@ -23,10 +23,10 @@ from api.air import Air
 from api.analytics import analyse
 from api.live import GEODATA_API, GeoDataUnavailable, Live
 from api.store import Store
-from pipeline.config import DATA_DIR, ROOT
+from pipeline.config import PRODUCT_DIR, WEB_DIR
 
-PRODUCT = Path(os.getenv("EMBER_PRODUCT", DATA_DIR / "product"))
-WEB = ROOT / "web"
+PRODUCT = Path(os.getenv("EMBER_PRODUCT", PRODUCT_DIR))
+WEB = WEB_DIR
 
 app = FastAPI(title="GeoFlare", version="2.0",
               description="GeoFlare Dashboard, Fires and Air: a harmonized MODIS + VIIRS fire record, live fires scored for severity, "

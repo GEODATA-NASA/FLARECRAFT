@@ -75,12 +75,14 @@ python -m pipeline.download          # ~9.6 GB FIRMS yearly archives (resumable)
 python -m pipeline.aggregate         # daily 0.25° aggregates (data/agg)
 python -m pipeline.build             # leave-one-year-out validation, final model, products (data/product)
 python -m pipeline.rankings          # country leaderboard (needs the GeoData cleaned fire CSV and data/ref/countryInfo.txt from GeoNames)
-uvicorn api.main:app --port 8010     # app + API at http://127.0.0.1:8010
+.venv/Scripts/python -m uvicorn api.main:app --port 8010  # app + API at http://127.0.0.1:8010
 ```
 
 Generated data is not in this repository, so a fresh clone needs the pipeline steps above first. The Severity chapter also needs the GeoData AI service running on port 8000 (`GEODATA_API` overrides the address). On Windows, `start.cmd` starts both services if GeoData AI is cloned next to this folder as `repo`. `start.cmd dashboard`, `start.cmd fires` or `start.cmd air` opens one app directly; plain `start.cmd` plays the story first.
 
 `python -m pipeline.run` does the aggregate and build steps without supervision, picking up each archive as it finishes downloading. Open `/dashboard`, `/fires` or `/air` (or add `?app`) to skip the story.
+
+Pipeline data paths are centralized in `pipeline/config.py`. Defaults are `../firms_archive/zips` for downloads, `data/` for generated data, and `../cleaned_data/` for the cleaned fires CSV. Override them with `FIRMS_ARCHIVE_DIR`, `EMBER_DATA_DIR`, and `CLEANED_DATA_DIR`; `EMBER_PRODUCT` can point the API at a separately located product directory.
 
 ### API
 

@@ -13,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 
-from pipeline.config import ARCHIVE_DIR, SENSOR_YEARS
+from pipeline.config import ARCHIVE_DIR, SENSOR_YEARS, archive_file
 
 BASE = "https://firms.modaps.eosdis.nasa.gov/data/country/zips/{sensor}_{year}_all_countries.zip"
 WORKERS = 10
@@ -27,7 +27,7 @@ def remote_size(session, url):
 
 def fetch(sensor, year):
     url = BASE.format(sensor=sensor, year=year)
-    target = ARCHIVE_DIR / f"{sensor}_{year}_all_countries.zip"
+    target = archive_file(sensor, year)
     partial = target.with_suffix(".zip.part")
     session = requests.Session()
     total = remote_size(session, url)
@@ -64,6 +64,7 @@ def main(sensors):
     ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
     jobs = [(s, y) for s in sensors for y in SENSOR_YEARS[s]]
     started = time.time()
+    failures = []
     with ThreadPoolExecutor(WORKERS) as pool:
         futures = {pool.submit(fetch, s, y): (s, y) for s, y in jobs}
         for future in as_completed(futures):
@@ -71,6 +72,10 @@ def main(sensors):
                 print(future.result(), f"[{(time.time() - started) / 60:.0f} min]", flush=True)
             except Exception as error:  # keep the other downloads going
                 print("FAILED", futures[future], error, flush=True)
+                failures.append((futures[future], error))
+    if failures:
+        failed_years = ", ".join(f"{sensor} {year}" for (sensor, year), _ in failures)
+        raise RuntimeError(f"Failed to download {len(failures)} archive(s): {failed_years}")
 
 
 if __name__ == "__main__":

@@ -17,7 +17,7 @@ import pandas as pd
 import requests
 from sklearn.metrics import roc_auc_score
 
-from pipeline.config import CELL_DEG, DATA_DIR, N_COLS, cell_id
+from pipeline.config import CELL_DEG, LIVE_DIR, N_COLS, cell_id
 
 FEEDS = {
     "24h": ["suomi-npp-viirs-c2/csv/SUOMI_VIIRS_C2_Global_24h.csv", "noaa-20-viirs-c2/csv/J1_VIIRS_C2_Global_24h.csv"],
@@ -26,7 +26,6 @@ FEEDS = {
 BASE = "https://firms.modaps.eosdis.nasa.gov/data/active_fire/"
 GEODATA_API = os.getenv("GEODATA_API", "http://127.0.0.1:8000").rstrip("/")
 TTL = 30 * 60
-LIVE_DIR = DATA_DIR / "live"
 CONFIDENCE = {"l": 25, "n": 50, "h": 100}  # same encoding the GeoData model was trained with
 
 

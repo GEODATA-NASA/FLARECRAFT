@@ -8,7 +8,7 @@ import traceback
 import zipfile
 
 from pipeline import aggregate, build
-from pipeline.config import ARCHIVE_DIR, DATA_DIR, SENSOR_YEARS
+from pipeline.config import SENSOR_YEARS, aggregate_file, archive_file
 
 
 def expected():
@@ -19,8 +19,8 @@ def main(poll=60):
     while True:
         done = 0
         for sensor, year in expected():
-            path = ARCHIVE_DIR / f"{sensor}_{year}_all_countries.zip"
-            target = DATA_DIR / "agg" / sensor / f"{year}.parquet"
+            path = archive_file(sensor, year)
+            target = aggregate_file(sensor, year)
             if target.exists():
                 done += 1
                 continue

@@ -47,6 +47,7 @@ $RECYCLE.BIN/
 # Heavy Data
 raw_data/
 cleaned_data/
+firms_archive/
 
 # Logs
 logs/
