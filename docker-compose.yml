@@ -47,6 +47,24 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # GeoFlare (Dashboard, Fires, Air) on http://localhost:8010. It calls the API above for severity scores.
+  # Generated data lives in ./geoflare/data (build it with the pipeline; see GEOFLARE_GUIDE.md).
+  geoflare:
+    build: ./geoflare
+    image: geoflare:latest
+    container_name: geoflare
+    environment:
+      GEODATA_API: http://api:8000
+      CLEANED_DATA_DIR: /app/cleaned_data
+    volumes:
+      - ./geoflare/data:/app/data
+      - ./cleaned_data:/app/cleaned_data:ro
+    ports:
+      - "${GEOFLARE_PORT:-8010}:8010"
+    depends_on:
+      - api
+    restart: unless-stopped
+
   pipeline:
     image: geodata-ai:latest
     build: .
