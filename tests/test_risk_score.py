@@ -44,3 +44,14 @@ def test_api_returns_risk_when_the_model_has_a_scale(client):
     if not info.get("risk_levels"):
         pytest.skip("the installed model predates the risk score")
     assert 0 <= payload["risk_score"] <= 100 and payload["risk_level"] in LEVELS
+
+
+def test_model_info_exposes_risk_cutoffs(client):
+    """The /api/v1/model response schema must not drop the risk cut-offs the frontends read."""
+    import joblib
+    from api.settings import Settings
+    artifact = joblib.load(Settings().model_path) if Settings().model_path.is_file() else {}
+    if not artifact.get("risk_scale"):
+        pytest.skip("the installed model predates the risk score")
+    info = client.get("/api/v1/model").json()
+    assert set(info["risk_levels"]["cutoffs"]) == {"Medium", "High", "Extreme"}
