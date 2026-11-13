@@ -13,14 +13,18 @@ country's density. Places under MIN_POPULATION (Antarctica, empty territories) a
 """
 
 import json
+import os
 import sys
+import tempfile
 from pathlib import Path
 
 import duckdb
 import pandas as pd
+import requests
 
 from pipeline.config import CELL_DEG, CLEANED_FIRES_FILE, GEONAMES_FILE, N_COLS, PRODUCT_DIR
 
+GEONAMES_URL = "https://download.geonames.org/export/dump/countryInfo.txt"
 FIRES_CSV = (Path(sys.argv[1]) if len(sys.argv) > 1
              else CLEANED_FIRES_FILE)
 PRODUCT = PRODUCT_DIR
@@ -45,6 +49,52 @@ ALIASES = {
 }
 
 
+def ensure_geonames_file(
+    path: Path = GEONAMES_FILE,
+    timeout: tuple[float, float] = (5.0, 30.0),
+) -> Path:
+    """Create the reference directory and download GeoNames if the file is absent."""
+    temporary_path: Path | None = None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.is_file():
+            return path
+
+        # Download to a temporary file so a failed request cannot leave a partial reference.
+        with requests.get(
+            GEONAMES_URL,
+            headers={"User-Agent": "GeoFlare/1.0 (country reference downloader)"},
+            timeout=timeout,
+            stream=True,
+        ) as response:
+            response.raise_for_status()
+            with tempfile.NamedTemporaryFile(
+                mode="wb",
+                dir=path.parent,
+                prefix=f".{path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as download:
+                temporary_path = Path(download.name)
+                bytes_written = 0
+                for chunk in response.iter_content(chunk_size=64 * 1024):
+                    if chunk:
+                        download.write(chunk)
+                        bytes_written += len(chunk)
+
+        if bytes_written == 0:
+            raise RuntimeError(f"GeoNames returned an empty file for {path}")
+
+        os.replace(temporary_path, path)
+        temporary_path = None
+        return path
+    except (requests.RequestException, OSError) as error:
+        raise RuntimeError(f"Could not ensure GeoNames reference file at {path}") from error
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+
+
 def geonames():
     """GeoNames name -> (area km2, population)."""
     rows = [line.rstrip("\n").split("\t") for line in GEONAMES.open(encoding="utf-8") if not line.startswith("#")]
@@ -52,6 +102,7 @@ def geonames():
 
 
 def main():
+    ensure_geonames_file()
     con = duckdb.connect()
     con.register("cells", pd.read_parquet(PRODUCT / "cells.parquet")[["cell", "country"]])
     path = FIRES_CSV.as_posix()
