@@ -5,8 +5,8 @@
 (function () {
   "use strict";
 
-  const SOURCE_LABELS = { modis: "MODIS", viirs_j1: "VIIRS NOAA‑20", viirs_suomi: "VIIRS Suomi NPP" };
-  const SOURCE_VARS = { modis: "--src-1", viirs_j1: "--src-2", viirs_suomi: "--src-3" };
+  const SOURCE_LABELS = { modis: "MODIS", viirs_j1: "VIIRS NOAA‑20", viirs_j2: "VIIRS NOAA‑21", viirs_suomi: "VIIRS Suomi NPP" };
+  const SOURCE_VARS = { modis: "--src-1", viirs_j1: "--src-2", viirs_j2: "--src-2", viirs_suomi: "--src-3" };
   const MOTION = !window.matchMedia("(prefers-reduced-motion: reduce)").matches && typeof anime === "function";
   const DEFAULT_CAPTION = "Detections per day. Severe share in red.";
   const el = (id) => document.getElementById(id);
@@ -159,7 +159,7 @@
               <a class="pop-action" href="${GEOFLARE}/air#${lat.toFixed(3)},${lon.toFixed(3)},${encodeURIComponent("Near a site in " + place)}">Check the air here in GeoFlare Air &rarr;</a>`, { maxWidth: 280 })
             .addTo(airLayer);
         });
-        toast(`${fmt.format(data.sites.length)} factories and gas flares from GeoFlare Air, ${data.year}. These are not wildfires.`);
+        toast(`The ${fmt.format(data.sites.length)} brightest of ${fmt.format(data.site_count || data.sites.length)} factory and gas-flare sites from GeoFlare Air, ${data.year}. These are not wildfires.`);
       } catch (error) {
         el("show-air").checked = false;
         toast("GeoFlare isn't running on port 8010, so the factory and flare sites can't be shown. Start it with geoflare\\start.cmd.");
@@ -341,10 +341,11 @@
   }
   function renderSummary(geojson, stats) {
     const meta = geojson.metadata, f = state.lastFilters;
-    el("hero-range").textContent = f ? `${dateLabel(f.start_date)} to ${dateLabel(f.end_date)}${f.bbox ? ", area on screen" : ""}` : "";
+    el("hero-range").textContent = state.live ? `Live, last 24 hours · VIIRS ${state.live.satellite} · newest ${state.live.newest}${f && f.bbox ? ", area on screen" : ""}`
+      : f ? `${dateLabel(f.start_date)} to ${dateLabel(f.end_date)}${f.bbox ? ", area on screen" : ""}` : "";
     // A random sample (CSV backend with fires_sample.csv) keeps shares right but shrinks counts, so show the
     // estimated full count and say so. Shares, rates and the chart's shape need no scaling.
-    const data = state.health && state.health.data, fraction = data && data.is_subset && data.sample_fraction ? data.sample_fraction : null;
+    const data = state.health && state.health.data, fraction = !state.live && data && data.is_subset && data.sample_fraction ? data.sample_fraction : null;   // live counts are complete
     const scale = fraction ? 1 / fraction : 1;
     const round3 = (v) => { if (v < 1000) return Math.round(v); const p = Math.pow(10, Math.floor(Math.log10(v)) - 2); return Math.round(v / p) * p; };
     countTo("stat-total", stats ? stats.total * scale : 0, (v) => (fraction ? "≈ " : "") + fmt.format(fraction ? round3(v) : Math.round(v)));
@@ -396,7 +397,41 @@
   }
 
   // ----------------------------------------------------------------- loads
+  // "Live now": the last 24 hours from NASA's near-real-time feed, scored by the same model. It comes from GeoFlare
+  // (port 8010), which already downloads and cleans that feed; dates and satellite are fixed by the feed.
+  async function loadLive() {
+    if (state.loading) return;
+    const f = readFilters(), low = el("min-confidence").value !== "" && Number(el("min-confidence").value) <= 25;
+    const url = new URL(`${GEOFLARE}/api/live/features`);
+    Object.entries({ window: "24h", conf: low ? "all" : "nh", daynight: f.daynight, min_frp: f.min_frp || 0, bbox: f.bbox, limit: Math.min(5000, Number(el("limit").value)) })
+      .forEach(([k, v]) => { if (v !== undefined && v !== "") url.searchParams.set(k, v); });
+    setLoading(true);
+    try {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(await errorMessage(response));
+      const live = await response.json(), days = live.stats.by_date.map((d) => d.date);
+      state.live = { satellite: live.satellite, newest: live.newest };
+      state.lastFilters = { start_date: days[0], end_date: days[days.length - 1], bbox: f.bbox };
+      state.features = live.geojson.features; state.stats = live.stats;
+      renderFeatures(state.features, true);
+      renderSummary(live.geojson, live.stats);
+      if (state.features.length && !el("use-viewport").checked) map.flyToBounds(state.layer.getBounds().pad(0.08), { maxZoom: 8, duration: MOTION ? 0.9 : 0 });
+    } catch (error) {
+      toast(error instanceof TypeError ? "Live data comes from GeoFlare on port 8010, and it isn't running. Start it with geoflare\\start.cmd." : `The live fires could not be loaded. ${error.message}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+  function setDataset() {
+    const live = checkedValue("dataset") === "live";
+    if (!live) state.live = null;
+    ["start-date", "end-date"].forEach((id) => { el(id).disabled = live; });
+    document.querySelectorAll('input[name="source"]').forEach((i) => { i.disabled = live; });
+    loadFires();
+  }
+
   async function loadFires() {
+    if (checkedValue("dataset") === "live") return loadLive();
     if (state.loading) return;
     const filters = readFilters();
     if (!filters.start_date || !filters.end_date) { toast("Choose a start and an end date first."); return; }
@@ -644,6 +679,7 @@
   });
   el("toggle-sidebar").addEventListener("click", toggleSidebar);
   el("show-air").addEventListener("change", (e) => toggleAirSites(e.target.checked));
+  el("dataset-seg").addEventListener("change", setDataset);
   window.addEventListener("resize", () => { if (state.chartRows.length) drawChart(); });
 
   el("p-date").addEventListener("input", () => { state.dateTouched = true; });

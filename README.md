@@ -1,6 +1,6 @@
 # 🌍 GeoData AI: Forest Fires & Climate Intelligence Pipeline
 
-> **GeoFlare**, the NASA Space Apps 2026 app by Team FLARECRAFT, lives in [`geoflare/`](./geoflare). It has three parts: GeoFlare Dashboard, GeoFlare Fires and GeoFlare Air. This GeoData service supplies its severity model, fire archive and assistant. To run both natively or with Docker, and for every API endpoint, see **[GEOFLARE_GUIDE.md](./GEOFLARE_GUIDE.md)**. On Windows, double-clicking `start_all_master.cmd` runs everything.
+> **GeoFlare**, the NASA Space Apps 2026 app by Team FLARECRAFT, lives in [`geoflare/`](./geoflare). It has two apps: GeoFlare Fires and GeoFlare Air. This GeoData service supplies its severity model, fire archive and assistant. To run both natively or with Docker, and for every API endpoint, see **[GEOFLARE_GUIDE.md](./GEOFLARE_GUIDE.md)**. On Windows, double-clicking `start_all_master.cmd` runs everything.
 
 An end-to-end wildfire analytics platform built on open NASA data. It ingests satellite fire detections (NASA FIRMS: MODIS and VIIRS) together with daily weather (NASA POWER), cleans and stores them in PostgreSQL/PostGIS, trains a machine-learning model that estimates how **severe** a detected fire is, and serves everything through a FastAPI service, an interactive Leaflet map, and a natural-language "ask the data" assistant powered by Claude.
 
@@ -25,7 +25,7 @@ An end-to-end wildfire analytics platform built on open NASA data. It ingests sa
 - [GeoAI Model](#-geoai-model)
 - [API (FastAPI)](#-api-fastapi)
 - [Frontend (Leaflet map)](#️-frontend-leaflet-map)
-- [GeoFlare (Dashboard, Fires, Air)](#-geoflare-dashboard-fires-air)
+- [GeoFlare (Fires, Air)](#-geoflare-fires-air)
 - [Ask the Data (assistant)](#-ask-the-data-assistant)
 - [Docker](#-docker)
 - [Scheduling and Airflow](#️-scheduling-and-airflow)
@@ -60,7 +60,7 @@ An end-to-end wildfire analytics platform built on open NASA data. It ingests sa
 - **Structured logging** for the pipeline, the API, and the scheduler.
 - **CI/CD**: GitHub Actions runs the tests, builds the Docker image, and publishes it to GitHub Container Registry on every push to `main`.
 - **Fire Risk Score (0–100)**: a calibrated score with Low, Medium, High, and Extreme levels, a recall-first decision threshold, handling of blank inputs, and SHAP explanations on top of the CatBoost model.
-- **GeoFlare**: a second service (port 8010) with three apps built for NASA Space Apps 2026 by Team FLARECRAFT: a harmonized MODIS + VIIRS fire calendar since 2003, live fires scored by this service, and air quality near gas flares and factories.
+- **GeoFlare**: a second service (port 8010) with two apps built for NASA Space Apps 2026 by Team FLARECRAFT. Fires: a harmonized MODIS + VIIRS fire calendar since 2003 and live fires scored by this service. Air: air quality near gas flares and factories.
 - **Windows automation scripts**: `scripts\start_app.cmd` (GeoData AI only), `geoflare\start.cmd` (both servers), `run_pipeline_and_servers.cmd` (GeoFlare pipeline, then both servers), and `start_all_master.cmd` (everything from a fresh clone). Each creates its virtual environment and installs the requirements when needed.
 
 ---
@@ -120,14 +120,14 @@ GeoFlare is a separate service in `geoflare/` that sits next to the GeoData API.
 
 ```text
  Browser ──▶ GeoFlare  (port 8010)  ── /geodata/ proxy ──▶  GeoData AI API  (port 8000)
-              Dashboard · Fires · Air                         severity model · archive map · assistant
+              Fires · Air                                     severity model · archive map · assistant
                  │
                  ├─ harmonized MODIS + VIIRS record  (DuckDB over Parquet, geoflare/data/)
                  ├─ live fires                       (NASA FIRMS public feed)
                  └─ air quality and wind             (Open-Meteo)
 ```
 
-GeoFlare still opens when GeoData is not running, but the severity scores and the 4-week outlook then report the service as offline. See [GeoFlare](#-geoflare-dashboard-fires-air) below and [GEOFLARE_GUIDE.md](./GEOFLARE_GUIDE.md).
+GeoFlare still opens when GeoData is not running, but the severity scores and the 4-week outlook then report the service as offline. See [GeoFlare](#-geoflare-fires-air) below and [GEOFLARE_GUIDE.md](./GEOFLARE_GUIDE.md).
 
 ---
 
@@ -201,7 +201,7 @@ GeoData-AI-Forest-Fires-Climate-Intelligence-Pipeline
 │  ├─ dags/geodata_pipeline.py  # Airflow DAG
 │  └─ airflow.Dockerfile    # Airflow image with the project's dependencies
 │
-├─ geoflare/                # GeoFlare: Dashboard, Fires, and Air (port 8010); see geoflare/README.md
+├─ geoflare/                # GeoFlare: Fires and Air (port 8010); see geoflare/README.md
 │  ├─ README.md             # What GeoFlare is, method, validation, and how to run it
 │  ├─ start.cmd             # Windows: starts GeoData AI (8000) and GeoFlare (8010), opens the browser
 │  ├─ Dockerfile            # GeoFlare image
@@ -222,7 +222,7 @@ GeoData-AI-Forest-Fires-Climate-Intelligence-Pipeline
 │  │  ├─ live.py            #   Live FIRMS fires, severity from GeoData, outlook
 │  │  ├─ air.py             #   Air verdict near industrial heat sites
 │  │  └─ store.py           #   Read access to the harmonized record (DuckDB over Parquet)
-│  ├─ web/                  # Browser UI: index.html, app.js (Dashboard), fires.js + fires.css (Fires),
+│  ├─ web/                  # Browser UI: index.html, app.js (shell, History, Today), fires.js + fires.css (Fires),
 │  │                        #   air.js (Air), intro.js + flick.js (story and mascot), ui.js, style.css
 │  └─ data/                 # (not in Git) agg/, weekly/, product/, ref/, live/ built by the pipeline
 │
@@ -323,7 +323,7 @@ On Windows, four `.cmd` scripts automate the steps above. Each one creates its v
 | Script | Where | What it does |
 |---|---|---|
 | `scripts\start_app.cmd` | GeoData AI only | Sets up `.venv` on the first run, starts the API on `127.0.0.1:8000`, and opens the map once the data has loaded (about 20 seconds). If the app is already running it only opens the browser. Set `GEODATA_PORT` to use another port or `GEODATA_NO_BROWSER=1` to skip the browser. |
-| `geoflare\start.cmd [dashboard\|fires\|air]` | Both servers | Sets up `geoflare\.venv` and installs `geoflare\requirements.txt`, starts GeoData AI on port 8000 in a minimized window if it is not already running (it needs the root `.venv`), waits up to 90 seconds for it, then starts GeoFlare on port 8010 and opens the browser. Uses `geoflare\data\product` when `report.json` exists, otherwise the small 2025 preview in `data\product-agg-dev`. |
+| `geoflare\start.cmd [fires\|air]` | Both servers | Sets up `geoflare\.venv` and installs `geoflare\requirements.txt`, starts GeoData AI on port 8000 in a minimized window if it is not already running (it needs the root `.venv`), waits up to 90 seconds for it, then starts GeoFlare on port 8010 and opens the browser. Uses `geoflare\data\product` when `report.json` exists, otherwise the small 2025 preview in `data\product-agg-dev`. |
 | `run_pipeline_and_servers.cmd` | GeoFlare data, then servers | Sets up `geoflare\.venv`, runs `pipeline.download`, `pipeline.aggregate`, `pipeline.build`, and `pipeline.rankings` in order, and only if all four succeed calls `geoflare\start.cmd`. If a step fails it stops with a message and does not start the servers. |
 | `start_all_master.cmd` | Everything | Sets up the root `.venv`, runs `python main.py` (the GeoData pipeline), then calls `run_pipeline_and_servers.cmd`. Use it for a fresh clone. |
 
@@ -347,7 +347,7 @@ Things to know:
 
 ### 7. Optional: GeoFlare
 
-GeoFlare needs its own data, built by its pipeline (see [GeoFlare](#-geoflare-dashboard-fires-air)). With Docker: `docker compose up -d db api geoflare`.
+GeoFlare needs its own data, built by its pipeline (see [GeoFlare](#-geoflare-fires-air)). With Docker: `docker compose up -d db api geoflare`.
 
 ---
 
@@ -663,23 +663,23 @@ Details:
 - Tool inputs are validated and clamped before they reach a query.
 - The system prompt and tool definitions are prompt-cached between requests.
 - When the CSV backend serves a sample, the assistant says so and scales absolute counts accordingly.
-- The assistant needs `ANTHROPIC_API_KEY`; the rest of the API works without it. Switch it off with `ASSISTANT_ENABLED=0`. Choose the model with `ASSISTANT_MODEL` and the reasoning effort with `ASSISTANT_EFFORT` (`low`, `medium`, `high`, `xhigh`, or `max`).
+- The assistant needs `ANTHROPIC_API_KEY`, or `GROQ_API_KEY` to run it through Groq instead (model `GROQ_MODEL`, default `openai/gpt-oss-120b`); the rest of the API works without either. The model and effort settings that follow apply to the Anthropic key. Switch it off with `ASSISTANT_ENABLED=0`. Choose the model with `ASSISTANT_MODEL` and the reasoning effort with `ASSISTANT_EFFORT` (`low`, `medium`, `high`, `xhigh`, or `max`).
 - `ASSISTANT_FALLBACKS=1` lets the API re-run a request on Anthropic's recommended fallback model if a safety classifier declines it.
 - Because `search_project_docs` indexes this README, keeping it accurate directly improves the assistant's answers about the project.
 
 ---
 
-## 🔥 GeoFlare (Dashboard, Fires, Air)
+## 🔥 GeoFlare (Fires, Air)
 
 GeoFlare is the NASA Space Apps 2026 app by Team FLARECRAFT (challenge: *Harmonization of MODIS and VIIRS Hot Spots*). It lives in [`geoflare/`](./geoflare) and runs as its own service on port 8010, next to GeoData AI on port 8000.
 
 | App | What it does |
 |---|---|
-| **Dashboard** | A burning-activity calendar for any country or drawn area since 2003, built from a harmonized MODIS + VIIRS record, with fire season, unusual weeks, long-term trends, a 4-week outlook, live fires, and a country leaderboard |
-| **Fires** | Scores today's fires with this repository's CatBoost model (Fire Risk Score), grades the scores against the fire power the satellites measured, and rebuilds the archive map with the data assistant |
+| **Fires · Past** | A burning-activity calendar for any country or drawn area since 2003, built from a harmonized MODIS + VIIRS record, with fire season, unusual weeks, long-term trends and a country leaderboard; and the 2025 archive map with the data assistant |
+| **Fires · Now** | Today's fires from NASA's live feed and a 4-week outlook. Scores today's fires with this repository's CatBoost model (Fire Risk Score), grades the scores against the fire power the satellites measured |
 | **Air** | Joins nearby gas-flare and factory heat sites, live air quality, and wind into a verdict and precautions for any place |
 
-**Why harmonize.** VIIRS (375 m pixels) records about 4.5× more detections than MODIS (1 km pixels) for the same fires, so a stitched record shows a false jump in 2012. GeoFlare learns, cell by cell and week by week, how many detections VIIRS would have made from what MODIS saw, and reconstructs 2003–2011 in VIIRS units with uncertainty bands.
+**Why harmonize.** VIIRS (375 m pixels) records about 4× more detections than MODIS (1 km pixels) for the same fires, so a stitched record shows a false jump in 2012. GeoFlare learns, cell by cell and week by week, how many detections VIIRS would have made from what MODIS saw, and reconstructs 2003–2011 in VIIRS units with uncertainty bands.
 
 **Validation** (leave one year out, 14 held-out years): the median monthly error by region (MdAPE, median absolute percentage error) is 33%, against 35% for a single global conversion factor, and the model wins in 12 of the 14 years. The year-level R² on log counts is 0.94, against 0.91. 80% of true values fall inside the 80% uncertainty bands. The gain over a single factor is real but modest; the larger value is the per-place calendar with honest ranges.
 
@@ -761,7 +761,7 @@ Everything is configured through environment variables (loaded from `.env`). `.e
 | Weather download | `WEATHER_COVERAGE`, `WEATHER_GRID_LAT_STEP`, `WEATHER_GRID_LON_STEP`, `WEATHER_REQUEST_PAUSE`, `WEATHER_START`, `WEATHER_END`, `WEATHER_LATITUDE`, `WEATHER_LONGITUDE` |
 | Modeling | `HIGH_FRP_THRESHOLD`, `MAX_WEATHER_DISTANCE_KM`, `REQUIRE_WEATHER_MATCH`, `TRAINING_SOURCE`, `MAX_TRAINING_ROWS`, `MODEL_ARTIFACT_PATH`, `FORCE_RETRAIN`, plus the CatBoost and calibration settings listed under [Training options](#training-options) |
 | API | `DATA_BACKEND`, `MODEL_PATH`, `DECISION_THRESHOLD`, `CORS_ORIGINS`, `API_MAX_GEOJSON_FEATURES`, `API_CACHE_TTL_SECONDS`, `CSV_MAX_ROWS`, `FIRES_SAMPLE_FILE`, `SERVE_FRONTEND`, `API_LOG_FILE`, `LOG_LEVEL` |
-| Assistant | `ANTHROPIC_API_KEY`, `ASSISTANT_ENABLED`, `ASSISTANT_MODEL`, `ASSISTANT_EFFORT`, `ASSISTANT_MAX_ROUNDS`, `ASSISTANT_FALLBACKS` |
+| Assistant | `ANTHROPIC_API_KEY`, `GROQ_API_KEY`, `GROQ_MODEL`, `ASSISTANT_ENABLED`, `ASSISTANT_MODEL`, `ASSISTANT_EFFORT`, `ASSISTANT_MAX_ROUNDS`, `ASSISTANT_FALLBACKS` |
 | GeoFlare | `GEODATA_API`, `EMBER_DATA_DIR`, `EMBER_PRODUCT`, `EMBER_PREFETCH`, `FIRMS_ARCHIVE_DIR`, `GEOFLARE_PORT` (defaults in [GEOFLARE_GUIDE.md](./GEOFLARE_GUIDE.md#53-settings)) |
 | Docker and scheduling | `API_PORT`, `DB_PORT_HOST`, `PIPELINE_INTERVAL_HOURS`, `PIPELINE_RUN_ON_START`, `GEODATA_SCHEDULE`, `GEODATA_API_URL`, `AIRFLOW_PORT`, `AIRFLOW_UID` |
 
@@ -886,7 +886,7 @@ Or ask the running API: `curl http://localhost:8000/health`.
 | New weather data or dates do not appear in the API | Call `POST /api/v1/refresh` or wait for `API_CACHE_TTL_SECONDS` |
 | A retrained model or new CSV fire data is not served | Restart the API; the model and CSV fires are loaded at startup |
 | Leftover `tmp*.csv` files in `cleaned_data/` | An earlier run was interrupted; they are safe to delete (final files are replaced only after a run completes) |
-| `/api/v1/ask` returns `503` | `ANTHROPIC_API_KEY` is missing or `ASSISTANT_ENABLED=0`; see `/api/v1/ask/status` |
+| `/api/v1/ask` returns `503` | `ANTHROPIC_API_KEY` and `GROQ_API_KEY` are both missing, or `ASSISTANT_ENABLED=0`; see `/api/v1/ask/status` |
 | Package install fails | Use a supported Python (3.10 or newer; 3.12 matches the Docker images) and a fresh virtual environment |
 | `run_pipeline_and_servers.cmd` stops with "GeoFlare pipeline failed" | One of download, aggregate, build, or rankings failed and the servers were not started. Read the message above it and run the script again; the download resumes |
 | `ModuleNotFoundError: No module named 'duckdb'` | GeoFlare's requirements are not installed in `geoflare\.venv`. Run `geoflare\start.cmd` (it installs them) or `pip install -r requirements.txt` inside `geoflare\` |
@@ -969,7 +969,7 @@ Open items from an independent code review of commit `7315dcc` (6 November 2026)
 | Severity scoring API, interactive map, and natural-language assistant | API keys, authentication, rate limiting, and usage metering |
 | Docker, Airflow, and CI/CD for repeatable deployment | Multi-tenant isolation, monitoring, and a service-level agreement |
 | CatBoost severity model, benchmarked against Random Forest and XGBoost (cross-validated ROC-AUC about 0.90) | A fire-occurrence or risk model and validation against customer data |
-| GeoFlare apps (Dashboard, Fires, Air) on top of the API, a NASA Space Apps 2026 prototype | Real users, a hosted deployment, and support |
+| GeoFlare apps (Fires, Air) on top of the API, a NASA Space Apps 2026 prototype | Real users, a hosted deployment, and support |
 | Roadmap item: Power BI dashboard | Power BI connectors and report templates |
 
 ### Value proposition

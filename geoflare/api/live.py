@@ -19,10 +19,14 @@ from sklearn.metrics import roc_auc_score
 
 from pipeline.config import CELL_DEG, LIVE_DIR, N_COLS, cell_id
 
-FEEDS = {
-    "24h": ["suomi-npp-viirs-c2/csv/SUOMI_VIIRS_C2_Global_24h.csv", "noaa-20-viirs-c2/csv/J1_VIIRS_C2_Global_24h.csv"],
-    "7d": ["suomi-npp-viirs-c2/csv/SUOMI_VIIRS_C2_Global_7d.csv"],
+# One VIIRS satellite at a time: adding two satellites would count the same fire twice. "auto" takes the first feed
+# that has data, in this order (NASA stopped filling the Suomi NPP near-real-time files in November 2026).
+SATELLITES = {
+    "noaa20": ("NOAA-20", "noaa-20-viirs-c2/csv/J1_VIIRS_C2_Global_{window}.csv"),
+    "noaa21": ("NOAA-21", "noaa-21-viirs-c2/csv/J2_VIIRS_C2_Global_{window}.csv"),
+    "snpp": ("Suomi NPP", "suomi-npp-viirs-c2/csv/SUOMI_VIIRS_C2_Global_{window}.csv"),
 }
+AUTO_ORDER = ["noaa20", "noaa21", "snpp"]
 BASE = "https://firms.modaps.eosdis.nasa.gov/data/active_fire/"
 GEODATA_API = os.getenv("GEODATA_API", "http://127.0.0.1:8000").rstrip("/")
 TTL = 30 * 60
@@ -31,6 +35,15 @@ CONFIDENCE = {"l": 25, "n": 50, "h": 100}  # same encoding the GeoData model was
 
 class GeoDataUnavailable(RuntimeError):
     pass
+
+
+class LiveFeedEmpty(RuntimeError):
+    """NASA's file for this satellite and window has no rows right now."""
+
+
+def confident(d):
+    """Nominal and high confidence only: the rule the archive uses."""
+    return d[d.confidence.astype(str).str.lower().str[0].isin(["n", "h"])]
 
 
 class Live:
@@ -85,30 +98,69 @@ class Live:
         return [c if isinstance(c, str) and c != "?" else None for c in names]
 
     # ------------------------------------------------------------ live fires
-    def detections(self, window="24h"):
+    def detections(self, window="24h", sat="auto"):
+        """Live detections from one satellite. sat="auto" uses the first satellite whose feed has data."""
+        if sat == "auto":
+            last = None
+            for key in AUTO_ORDER:
+                try:
+                    return self.detections(window, key)
+                except LiveFeedEmpty as error:
+                    last = error
+            raise last
+
         def build():
-            disk = LIVE_DIR / f"{window}.parquet"
-            if disk.exists() and time.time() - disk.stat().st_mtime < (TTL if self.cache.get(f"det-{window}") else 3 * 3600):
-                return pd.read_parquet(disk)
-            parts = []
-            for path in FEEDS[window]:
-                response = requests.get(BASE + path, timeout=180)
-                response.raise_for_status()
-                frame = pd.read_csv(io.BytesIO(response.content))
-                frame["sat"] = "N" if "SUOMI" in path else "1"
-                parts.append(frame)
-            frame = pd.concat(parts, ignore_index=True)
+            disk = LIVE_DIR / f"{window}-{sat}.parquet"
+            if disk.exists() and time.time() - disk.stat().st_mtime < (TTL if self.cache.get(f"det-{window}-{sat}") else 3 * 3600):
+                frame = pd.read_parquet(disk)
+                if len(frame):
+                    return frame
+            label, pattern = SATELLITES[sat]
+            content, error = None, None
+            for attempt in range(3):          # NASA's server sometimes drops long downloads; try again before giving up
+                try:
+                    response = requests.get(BASE + pattern.format(window=window), timeout=(20, 180 if window == "24h" else 900))   # the 7-day file is ~5x larger
+                    response.raise_for_status()
+                    content = response.content
+                    break
+                except requests.RequestException as exc:
+                    error = exc
+                    time.sleep(3 * (attempt + 1))
+            if content is None:
+                if disk.exists():             # keep showing the last good copy; its "fetched" time says how old it is
+                    stale = pd.read_parquet(disk)
+                    if len(stale):
+                        print(f"[live] {label} {window}: NASA unreachable ({error}); serving copy fetched {stale.fetched.iloc[0]}", flush=True)
+                        return stale
+                raise error
+            frame = pd.read_csv(io.BytesIO(content))
+            if frame.empty:
+                raise LiveFeedEmpty(f"NASA's {label} feed for the last {window} is empty right now")
+            frame["sat"] = sat
+            frame["satellite"] = label
             frame["cell"] = cell_id(frame.latitude.to_numpy(), frame.longitude.to_numpy())
             frame["industrial"] = frame.cell.isin(self.industrial_cells())
             frame["fetched"] = dt.datetime.now(dt.timezone.utc).isoformat(timespec="minutes")
             LIVE_DIR.mkdir(parents=True, exist_ok=True)
             frame.astype({"confidence": str, "acq_date": str}).to_parquet(disk, index=False)
             return frame
-        return self.cached(f"det-{window}", build)
+        return self.cached(f"det-{window}-{sat}", build)
 
-    def summary(self, window="24h"):
+    def summary(self, window="24h", sat="auto", conf="nh", daynight="", min_frp=0.0):
+        """Live fires with the same switches as the archive map: satellite, confidence, time of day, minimum strength.
+
+        conf="nh" keeps nominal and high confidence only, the same rule the 2025 archive uses; conf="all" adds low."""
         def build():
-            d = self.detections(window)
+            d = self.detections(window, sat)
+            raw = len(d)
+            if conf == "nh":
+                d = confident(d)
+            if daynight in ("D", "N"):
+                d = d[d.daynight == daynight]
+            if min_frp:
+                d = d[d.frp >= min_frp]
+            if d.empty:
+                raise LiveFeedEmpty("No live fires match these switches. Loosen a filter.")
             fires, ind = d[~d.industrial], d[d.industrial]
             g = d.groupby("cell").agg(n=("frp", "size"), frp=("frp", "sum"), frp_max=("frp", "max"), industrial=("industrial", "max")).reset_index()
             row, col = np.divmod(g.cell.to_numpy(), N_COLS)
@@ -117,7 +169,8 @@ class Live:
             countries = pd.Series(self.country_of(fires.cell), index=fires.index).value_counts().head(8)
             stamp = pd.to_datetime(d.acq_date.astype(str) + d.acq_time.astype(int).astype(str).str.zfill(4), format="%Y-%m-%d%H%M")
             return {
-                "window": window, "fetched": d.fetched.iloc[0],
+                "window": window, "fetched": d.fetched.iloc[0], "satellite": d.satellite.iloc[0], "sat": d.sat.iloc[0],
+                "filters": {"conf": conf, "daynight": daynight, "min_frp": min_frp}, "raw_detections": int(raw), "shown_detections": int(len(d)),
                 "newest": stamp.max().strftime("%d %b %Y %H:%M UTC"), "oldest": stamp.min().strftime("%d %b %Y %H:%M UTC"),
                 "fires": int(len(fires)), "industrial": int(len(ind)),
                 "severe": int((fires.frp >= 10).sum()), "frp_total": float(fires.frp.sum()),
@@ -126,7 +179,7 @@ class Live:
                 "biggest": self.biggest_by_country(fire_cells),
                 "globe": self.globe_points(g),
             }
-        return self.cached(f"sum-{window}", build)
+        return self.cached(f"sum-{window}-{sat}-{conf}-{daynight}-{min_frp}", build)
 
     def biggest_by_country(self, fire_cells, top=8):
         """The fiercest fire square in each country, so one burning region cannot fill the whole list."""
@@ -145,14 +198,61 @@ class Live:
         return [[r + 0.5, c + 0.5, int(n), bool(i)] for r, c, n, i in agg.itertuples(index=False)]
 
     # ------------------------------------------------------------ GeoData model
-    def predict(self, observations):
+    def predict_rows(self, observations):
         try:
             response = requests.post(f"{GEODATA_API}/api/v1/predict/batch", json={"observations": observations}, timeout=120)
         except requests.RequestException as error:
             raise GeoDataUnavailable(f"GeoData AI is not reachable at {GEODATA_API}") from error
         if response.status_code != 200:
             raise GeoDataUnavailable(f"GeoData AI answered {response.status_code}: {response.text[:200]}")
-        return np.array([p["high_frp_probability"] for p in response.json()["predictions"]])
+        return response.json()["predictions"]
+
+    def predict(self, observations):
+        return np.array([p["high_frp_probability"] for p in self.predict_rows(observations)])
+
+    @staticmethod
+    def observation(r):
+        return {"latitude": float(r.latitude), "longitude": float(r.longitude), "acq_date": str(r.acq_date),
+                "acq_time": int(r.acq_time), "brightness": float(r.bright_ti4), "scan": float(r.scan), "track": float(r.track),
+                "confidence": CONFIDENCE.get(str(r.confidence).lower()[:1], 50), "type": 0}
+
+    def features(self, window="24h", sat="auto", conf="nh", daynight="", min_frp=0.0, bbox=None, limit=5000):
+        """Live fires as GeoJSON with severity scores, plus totals, in the shape the classic GeoData map reads."""
+        d = self.detections(window, sat)
+        d = d[~d.industrial & d.frp.notna()]
+        if conf == "nh":
+            d = confident(d)
+        if daynight in ("D", "N"):
+            d = d[d.daynight == daynight]
+        if min_frp:
+            d = d[d.frp >= min_frp]
+        if bbox:
+            west, south, east, north = bbox
+            d = d[d.latitude.between(south, north) & d.longitude.between(west, east)]
+        if d.empty:
+            raise LiveFeedEmpty("No live fires match these filters.")
+        source = {"noaa20": "viirs_j1", "noaa21": "viirs_j2", "snpp": "viirs_suomi"}[d.sat.iloc[0]]
+        shown = d.sample(n=min(int(limit), 5000, len(d)), random_state=0)
+        rows = self.predict_rows([self.observation(r) for r in shown.itertuples()])
+        features = [{
+            "type": "Feature", "geometry": {"type": "Point", "coordinates": [float(r.longitude), float(r.latitude)]},
+            "properties": {"acq_date": str(r.acq_date), "acq_time": int(r.acq_time), "frp": float(r.frp), "brightness": float(r.bright_ti4),
+                           "confidence": CONFIDENCE.get(str(r.confidence).lower()[:1], 50), "scan": float(r.scan), "track": float(r.track), "type": 0,
+                           "daynight": r.daynight, "satellite_source": source, "high_frp_probability": p["high_frp_probability"],
+                           "is_high_frp": p["is_high_frp"], "predicted_label": p["predicted_label"], "risk_score": p.get("risk_score"),
+                           "risk_level": p.get("risk_level"), "weather_matched": p["weather"]["matched"]},
+        } for r, p in zip(shown.itertuples(), rows)]
+        by_date = d.assign(severe=d.frp >= 10).groupby(d.acq_date.astype(str)).agg(count=("frp", "size"), high=("severe", "sum"))
+        stamp = pd.to_datetime(d.acq_date.astype(str) + d.acq_time.astype(int).astype(str).str.zfill(4), format="%Y-%m-%d%H%M")
+        return {
+            "satellite": d.satellite.iloc[0], "window": window, "fetched": d.fetched.iloc[0], "newest": stamp.max().strftime("%d %b %Y %H:%M UTC"),
+            "geojson": {"type": "FeatureCollection", "features": features,
+                        "metadata": {"count": len(features), "truncated": len(features) < len(d), "predicted_high_frp": int(sum(f["properties"]["is_high_frp"] for f in features))}},
+            "stats": {"total": int(len(d)), "avg_frp": float(d.frp.mean()), "max_frp": float(d.frp.max()), "high_frp_count": int((d.frp >= 10).sum()),
+                      "high_frp_share": float((d.frp >= 10).mean()), "high_frp_threshold_mw": 10.0,
+                      "by_source": [{"source": source, "count": int(len(d))}],
+                      "by_date": [{"date": day, "count": int(r["count"]), "high_frp_count": int(r.high)} for day, r in by_date.iterrows()]},
+        }
 
     def model_threshold(self):
         """The decision threshold saved with the GeoData model (recall-first), or 0.5 for older models."""
@@ -175,13 +275,9 @@ class Live:
         """Score live fires with the GeoData model, then grade it against the fire power the satellites measured."""
         def build():
             d = self.detections(window)
-            fires = d[~d.industrial & d.frp.notna()]
+            fires = confident(d[~d.industrial & d.frp.notna()])
             fires = fires.sample(n=min(sample, len(fires)), random_state=0)
-            obs = [{
-                "latitude": float(r.latitude), "longitude": float(r.longitude), "acq_date": str(r.acq_date),
-                "acq_time": int(r.acq_time), "brightness": float(r.bright_ti4), "scan": float(r.scan), "track": float(r.track),
-                "confidence": CONFIDENCE.get(str(r.confidence).lower()[:1], 50), "type": 0,
-            } for r in fires.itertuples()]
+            obs = [self.observation(r) for r in fires.itertuples()]
             p = self.predict(obs)
             actual = (fires.frp.to_numpy() >= 10)
             threshold = self.model_threshold()
@@ -241,7 +337,7 @@ class Live:
     def warm(self, every=25 * 60):
         """Keep live data, severity and the outlook fresh in the background so the story never waits."""
         while True:
-            for job in (lambda: self.summary("24h"), lambda: self.severity("24h"), self.outlook, self.industry):
+            for job in (lambda: self.summary("24h"), lambda: self.severity("24h"), self.outlook, self.industry, lambda: self.summary("7d")):
                 try:
                     job()
                 except Exception as error:  # an outage must not kill the warmer
@@ -260,5 +356,7 @@ class Live:
             ranking = per[(per.year == last) & (per.country != "?")].sort_values("n", ascending=False).head(12)
             series = {c: per[per.country == c].sort_values("year")[["year", "n"]].values.tolist() for c in ranking.country}
             return {"year": last, "global": years.values.tolist(), "ranking": ranking[["country", "n"]].values.tolist(),
-                    "series": series, "sites": s.industrial_sites(last, limit=1500)}
+                    "series": series, "sites": s.industrial_sites(last, limit=1500),
+                    # every cell with industrial heat that year; "sites" holds only the brightest 1,500 for the map
+                    "site_count": int(s.db.execute(f"SELECT COUNT(*) FROM (SELECT cell FROM '{s.cellweek}' WHERE year = {last} AND {col} > 0 GROUP BY cell)").fetchall()[0][0])}
         return self.cached("industry", build, ttl=24 * 3600)

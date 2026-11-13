@@ -23,7 +23,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" crossorigin="anonymous">
+  <link rel="stylesheet" href="vendor/leaflet.min.css">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -90,6 +90,13 @@
     <section class="section" data-enter aria-labelledby="filters-title">
       <h2 id="filters-title">Filters</h2>
       <form id="filter-form" autocomplete="off">
+        <div class="field"><span>Data</span>
+          <div class="segmented" data-segmented id="dataset-seg">
+            <span class="segmented-thumb" aria-hidden="true"></span>
+            <label><input type="radio" name="dataset" value="archive" checked><span>2025 archive</span></label>
+            <label><input type="radio" name="dataset" value="live"><span>Live now</span></label>
+          </div>
+        </div>
         <div class="row-2">
           <label class="field"><span>From</span><input type="date" id="start-date" required></label>
           <label class="field"><span>To</span><input type="date" id="end-date" required></label>
@@ -246,8 +253,8 @@
     <div id="toast" class="toast" role="status" hidden></div>
   </main>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" crossorigin="anonymous"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.2/anime.min.js" crossorigin="anonymous"></script>
+  <script src="vendor/leaflet.min.js"></script>
+  <script src="vendor/anime.min.js"></script>
   <script src="app.js"></script>
   <script>
     /* Link back to the GeoFlare site on the same machine (port 8010). */

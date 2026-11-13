@@ -287,7 +287,6 @@ body[data-view="air"] { --accent: #0b7f86; --accent-soft: rgba(11, 127, 134, 0.1
 .products a { display: flex; align-items: center; gap: 7px; padding: 7px 16px; border-radius: 999px; font-size: 14px; font-weight: 700; color: var(--label-2);
   text-decoration: none; white-space: nowrap; min-height: 34px; transition: color .2s; }
 .products a .p-dot { width: 8px; height: 8px; border-radius: 50%; }
-.products a[data-view="dashboard"] .p-dot { background: #e8590c; }
 .products a[data-view="fires"] .p-dot { background: #e5281b; }
 .products a[data-view="air"] .p-dot { background: #0fa3ab; }
 .products a.on { background: var(--surface); color: var(--label); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
@@ -534,3 +533,18 @@ body.touring .flick-card { display: none !important; }
 .story-pollutants strong { color: #cdeeff; font-size: 16px; }
 .story-pollutants span { color: #a8b7c0; font-size: 13.5px; }
 .air-story-btn { margin-top: 14px; }
+
+/* Right now: the same kind of switches as the archive map */
+.now-filters { display: flex; flex-wrap: wrap; gap: 10px 14px; justify-content: center; margin: 16px auto 0; max-width: 900px; }
+.now-filters label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--label-3); text-align: left; }
+.now-filters select { text-transform: none; letter-spacing: 0; font-size: 14px; color: var(--label); min-width: 170px; }
+.now-filters .now-check { flex-direction: row; align-items: center; gap: 8px; align-self: flex-end; min-height: 38px; text-transform: none; letter-spacing: 0; font-size: 14px; color: var(--label); }
+.now-source { max-width: 760px; margin: 12px auto 0; font-size: 13px; }
+@media (max-width: 760px) { .now-filters select { min-width: 0; width: 100%; } .now-filters label { flex: 1 1 45%; } }
+
+/* Fires: Past | Now, each with two sections. fires.js keeps its own (hidden) switcher for the panes it builds. */
+.fnav { display: flex; flex-direction: column; align-items: center; gap: 10px; margin: 22px auto 0; }
+.fnav .toggle { margin: 0; }
+#fires-top button { min-width: 110px; }
+#fires-sub { display: none; }
+#fires-view:not([data-sub="explore"]) .classic-row { display: none; }
