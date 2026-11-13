@@ -7,10 +7,12 @@ the model and are validated and clamped here before they reach a query.
 
 import json
 import logging
+import os
 from collections import defaultdict
 from datetime import date
 
 import pandas as pd
+import requests
 
 from api.filters import ORDER_OPTIONS, FireFilters
 from api.serialization import frame_to_records
@@ -104,6 +106,20 @@ TOOLS = [
                 "type": {"type": "integer", "description": "0 vegetation, 1 volcano, 2 static source, 3 offshore."},
             },
             "required": ["latitude", "longitude", "acq_date"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "get_fire_history",
+        "description": "Fire history 2003-2025 for one country or the whole world, from GeoFlare's harmonized MODIS + VIIRS record: "
+                       "detections per year (in VIIRS units, with an 80% range for the years rebuilt from MODIS), the usual fire "
+                       "season, the long-term trend, and the most unusual months. Use this for any question about years other "
+                       "than the one the detailed table covers, or about how fires changed over time.",
+        "strict": True,
+        "input_schema": {
+            "type": "object",
+            "properties": {"country": {"type": "string", "description": "Country name in English, for example Egypt. Omit for the whole world."}},
+            "required": [],
             "additionalProperties": False,
         },
     },
@@ -284,6 +300,32 @@ class ToolExecutor:
             "weather": weather,
             "in_training_extent": predictor.in_training_extent(latitude, longitude, day),
             "missing_inputs": [k for k in ("acq_time", "brightness", "confidence", "scan", "track", "type") if k not in row],
+        }
+
+    def _tool_get_fire_history(self, args):
+        country = str(args.get("country") or "").strip()
+        try:
+            response = requests.get(f"{os.getenv('GEOFLARE_API', 'http://127.0.0.1:8010')}/api/calendar",
+                                    params={"country": country} if country else None, timeout=60)
+        except requests.RequestException as error:
+            raise ToolError("The 2003-2025 record is served by GeoFlare (port 8010), and it is not running.") from error
+        if response.status_code == 404:
+            raise ToolError(f"Unknown country {country!r}. Use the English country name, or omit it for the whole world.")
+        if not response.ok:
+            raise ToolError(f"GeoFlare returned an error ({response.status_code}).")
+        d = response.json()
+        annual, trend, season = d["annual"], d["trends"]["harmonized"], d.get("season") or {}
+        return {
+            "area": country or "whole world",
+            "unit": "satellite fire detections per year in VIIRS units; not the number of fires and not burned area",
+            "reconstructed_years": f"{d['years'][0]}-{d['viirs_start'] - 1} are rebuilt from MODIS (low/high is an 80% range); later years are observed by VIIRS",
+            "per_year": [{"year": y, "detections": round(v), "low": round(lo), "high": round(hi)}
+                         for y, v, lo, hi in zip(d["years"], annual["harmonized"], annual["lo"], annual["hi"])],
+            "fire_season": {"runs": season.get("label"), "peak": season.get("peak_label")},
+            "trend": {"percent_per_decade": _round(trend["pct_per_decade"], 1), "p_value": _round(trend["p_value"], 3),
+                      "statistically_significant": trend["significant"]},
+            "most_unusual_months": [{"month": m["label"], "times_normal": m["ratio"]} for m in d["unusual_months"][:5]],
+            "summary": [i["text"] for i in d["insights"]],
         }
 
     def _tool_get_model_info(self, _args):

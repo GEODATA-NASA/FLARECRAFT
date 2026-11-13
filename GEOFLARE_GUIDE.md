@@ -4,7 +4,7 @@ GeoFlare is made of two services:
 
 | Service | Folder | Port | What it does |
 |---|---|---|---|
-| **GeoFlare** | `geoflare/` | 8010 | The website (story, GeoFlare Dashboard, GeoFlare Fires, GeoFlare Air) and its API: the harmonized MODIS + VIIRS fire calendar, live fires, air quality near industry, the leaderboard. |
+| **GeoFlare** | `geoflare/` | 8010 | The website (story, GeoFlare Fires, GeoFlare Air) and its API: the harmonized MODIS + VIIRS fire calendar, live fires, air quality near industry, the leaderboard. |
 | **GeoData AI** | repository root | 8000 | The severity model (CatBoost, Fire Risk Score), the fire archive map, and the "ask the data" assistant. GeoFlare calls it for every severity score. It also runs on its own as the classic map. |
 
 GeoFlare still opens without GeoData, but the Fires app, the severity scores and the 4-week outlook will say the service is offline.
@@ -47,7 +47,7 @@ Four scripts automate everything below. Each creates its virtual environment (`.
 |---|---|
 | `start_all_master.cmd` | Everything, for a fresh clone: sets up the root `.venv`, runs `python main.py` (the GeoData pipeline), then calls `run_pipeline_and_servers.cmd` |
 | `run_pipeline_and_servers.cmd` | Sets up `geoflare\.venv`, runs `pipeline.download`, `aggregate`, `build` and `rankings` in order, and only if all four succeed calls `geoflare\start.cmd`. If a step fails it stops and does not start the servers |
-| `geoflare\start.cmd [dashboard\|fires\|air]` | Sets up `geoflare\.venv`, starts GeoData AI on port 8000 if it isn't running (it needs the root `.venv`), waits up to 90 seconds for it, starts GeoFlare on port 8010, and opens the browser |
+| `geoflare\start.cmd [fires\|air]` | Sets up `geoflare\.venv`, starts GeoData AI on port 8000 if it isn't running (it needs the root `.venv`), waits up to 90 seconds for it, starts GeoFlare on port 8010, and opens the browser |
 | `scripts\start_app.cmd` | GeoData AI only, on port 8000 (the classic map) |
 
 ```text
@@ -105,8 +105,7 @@ The GeoData AI service on port 8000 is only needed for severity scores and the F
 
 ```bat
 geoflare\start.cmd            :: the story, then the apps
-geoflare\start.cmd dashboard  :: GeoFlare Dashboard
-geoflare\start.cmd fires      :: GeoFlare Fires
+geoflare\start.cmd fires      :: GeoFlare Fires (Past: history, 2025 archive. Now: today, next 4 weeks)
 geoflare\start.cmd air        :: GeoFlare Air
 ```
 
@@ -120,7 +119,7 @@ geoflare\start.cmd air        :: GeoFlare Air
 .venv\Scripts\python -m uvicorn api.main:app --host 127.0.0.1 --port 8010
 ```
 
-The apps are at http://127.0.0.1:8010/ (the story), `/dashboard`, `/fires` and `/air`. The classic map is at http://127.0.0.1:8000/. Its "Show factories and gas flares" switch adds GeoFlare Air's sites, which needs GeoFlare running on 8010. Neither server reloads code on its own, so restart it after changing Python files.
+The apps are at http://127.0.0.1:8010/ (the story), `/fires` and `/air`. Inside Fires: `/fires#history`, `/fires#archive`, `/fires#today`, `/fires#severe` and `/fires#outlook`. The classic map is at http://127.0.0.1:8000/. Its "Live now" switch (today's fires instead of the 2025 archive) and its "Show factories and gas flares" switch both read from GeoFlare, so they need it running on 8010. Neither server reloads code on its own, so restart it after changing Python files.
 
 ---
 
@@ -151,7 +150,7 @@ cd geoflare && .venv/bin/python -m uvicorn api.main:app --host 127.0.0.1 --port 
 Requirements: Docker Desktop (Windows or macOS) or Docker Engine with Compose v2. The data folders above are mounted into the containers, so build the data first, natively or with the one-off commands below.
 
 ```bash
-cp .env.example .env              # once; set DB_PASSWORD, and ANTHROPIC_API_KEY for the assistant
+cp .env.example .env              # once; set DB_PASSWORD, and GROQ_API_KEY or ANTHROPIC_API_KEY for the assistant
 docker compose build api geoflare
 docker compose up -d db api geoflare
 ```
@@ -206,7 +205,7 @@ Both services publish interactive OpenAPI docs: http://127.0.0.1:8010/docs for G
 | `POST /api/v1/predict/batch` | Score up to 5,000 fires: `{"observations": [ ... ]}` |
 | `GET /api/v1/model` | Model details: features, metrics (chronological test, spatial CV, blank-input scores, before/after comparison), decision threshold, SHAP importance, risk-level cut-offs, training extent |
 | `POST /api/v1/refresh` | Rebuild caches after loading new data |
-| `GET /api/v1/ask/status`, `POST /api/v1/ask` | The assistant (needs `ANTHROPIC_API_KEY`): `{"question": "...", "history": []}` |
+| `GET /api/v1/ask/status`, `POST /api/v1/ask` | The assistant (needs `GROQ_API_KEY` or `ANTHROPIC_API_KEY`): `{"question": "...", "history": []}` |
 
 Predict request. Only `latitude`, `longitude` and `acq_date` are required. Anything else can be left out, because the model is trained to handle blanks.
 
@@ -247,7 +246,9 @@ Response, shortened:
 | `GET /api/map?year=2025&week_from=39&week_to=41&country=Egypt` | Harmonized activity and industrial heat per 0.25° cell for a map |
 | `GET /api/export.csv?country=…` | Weekly raw MODIS, raw VIIRS, reconstruction and harmonized series (CSV) |
 | `GET /api/intro` | Everything the story needs: a year of weekly frames, the global record, industrial sites |
-| `GET /api/live?window=24h` (or `7d`) | Live NASA FIRMS fires: counts, map cells, fiercest fire per country, busiest countries |
+| `GET /api/live?window=24h` (or `7d`), `&sat=auto\|noaa20\|noaa21\|snpp`, `&conf=nh\|all`, `&daynight=D\|N`, `&min_frp=` | Live NASA FIRMS fires from one VIIRS satellite: counts, map cells, fiercest fire per country, busiest countries |
+| `GET /api/live/features?bbox=&limit=` (same filters) | Live fires as scored GeoJSON plus totals, for the classic map's "Live now" switch |
+| `GET /api/findings` | Do factories and wildfires move together? Rhythm, proximity and trend results |
 | `GET /api/live/severity` | Live fires scored by GeoData and graded against measured fire power: ROC-AUC, share caught, calibration, watch list |
 | `GET /api/outlook` | Next 4 weeks: usual activity × severity chance, by place and country |
 | `GET /api/industry` | Industrial heat sites, country ranking, yearly trend |
@@ -278,7 +279,9 @@ The `verdict` holds the level (1 to 6), the US AQI band, how close industry is, 
 | `CLEANED_DATA_DIR` | both | `cleaned_data/` | Cleaned GeoData CSVs |
 | `DATA_BACKEND` | GeoData | `auto` | `postgres`, `csv` or `auto` |
 | `DECISION_THRESHOLD` | GeoData | from the model | Overrides the saved recall-first threshold |
-| `ANTHROPIC_API_KEY` | GeoData | none | Turns on the assistant |
+| `GEOFLARE_API` | GeoData | `http://127.0.0.1:8010` | Where the assistant reads the 2003–2025 fire history |
+| `ANTHROPIC_API_KEY` | GeoData | none | Turns on the assistant (Claude) |
+| `GROQ_API_KEY`, `GROQ_MODEL` | GeoData | none, `openai/gpt-oss-120b` | Turns on the assistant through Groq when no Anthropic key is set |
 
 Training settings are listed in the README section "Validation, early stopping and the decision threshold".
 

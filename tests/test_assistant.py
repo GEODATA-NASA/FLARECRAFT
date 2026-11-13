@@ -61,6 +61,32 @@ def test_tool_schemas_are_strict_and_closed():
             assert not {"minimum", "maximum", "minLength", "maxLength"} & set(prop)
 
 
+def test_fire_history_tool_reads_geoflare(runtime, monkeypatch):
+    calendar = {"years": [2011, 2012], "viirs_start": 2012, "annual": {"harmonized": [10.4, 12.0], "lo": [8.0, 12.0], "hi": [13.0, 12.0]},
+                "trends": {"harmonized": {"pct_per_decade": 13.35, "p_value": 0.0438, "significant": True}},
+                "season": {"label": "19 Feb - 5 Nov", "peak_label": "8 Oct"},
+                "unusual_months": [{"label": "Aug 2015", "ratio": 2.18}], "insights": [{"text": "Rising."}]}
+    seen = {}
+
+    class Reply:
+        status_code, ok = 200, True
+        json = staticmethod(lambda: calendar)
+
+    def fake_get(url, params=None, timeout=None):
+        seen.update(url=url, params=params)
+        return Reply
+
+    monkeypatch.setattr("api.assistant.tools.requests.get", fake_get)
+    tools = ToolExecutor(runtime, KnowledgeBase.from_project(runtime.settings.frontend_dir.parent))
+    history = tools.run("get_fire_history", {"country": "Egypt"})
+    assert seen["url"].endswith("/api/calendar") and seen["params"] == {"country": "Egypt"}
+    assert history["per_year"][0] == {"year": 2011, "detections": 10, "low": 8, "high": 13}
+    assert history["trend"]["statistically_significant"] and history["fire_season"]["peak"] == "8 Oct"
+    Reply.status_code, Reply.ok = 404, False
+    with pytest.raises(ToolError):
+        tools.run("get_fire_history", {"country": "Atlantis"})
+
+
 def test_loop_runs_tools_and_returns_answer(runtime):
     service = _service(runtime, [
         _response([_tool("get_fire_statistics", {"start_date": "2025-01-01", "end_date": "2025-01-31"}, "t1"),

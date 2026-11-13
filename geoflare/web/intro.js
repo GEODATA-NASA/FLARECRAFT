@@ -242,6 +242,43 @@ const Story = (() => {
     ring(x(data.viirs_start) + x.bandwidth() / 2, y(a.naive[i]) - 4, Math.max(26, x.bandwidth() * 1.6), `${data.viirs_start}: ×${(data.jump ? data.jump.naive_ratio : 4).toFixed(1)} overnight`);
   }
 
+  /* ------------------------------------------------------------------ where the data comes from, and how it is processed */
+  function sourceFigure() {
+    clearFigure();
+    const b = box(), last = data ? data.annual.years[data.annual.years.length - 1] : 2025;
+    const rows = [["MODIS · Terra", 2000, "#8a8f98", "1 km"], ["MODIS · Aqua", 2002, "#8a8f98", "1 km"], ["VIIRS · Suomi NPP", 2012, "#ff7a2f", "375 m"], ["VIIRS · NOAA-20", 2018, "#ff7a2f", "375 m"]];
+    const x = d3.scaleLinear().domain([2000, last + 1]).range([b.x0 + 170, b.x1]);
+    const y = d3.scaleBand().domain(rows.map((r) => r[0])).range([b.y0 + 50, b.y1 - 60]).padding(0.38);
+    axisLabel("Satellites in NASA's FIRMS archive, and the year each record starts", b.x0, b.y0 + 6);
+    [2000, 2005, 2010, 2015, 2020, 2025].forEach((yr) => { if (yr <= last + 1) axisLabel(String(yr), x(yr), b.y1 - 30, "middle"); });
+    rows.forEach(([name, start, color, pixel]) => {
+      svg.append("text").attr("class", "fig-title").attr("x", b.x0 + 160).attr("y", y(name) + y.bandwidth() * 0.65).attr("text-anchor", "end").style("font-size", "14px").text(name);
+      const bar = svg.append("rect").attr("x", x(start)).attr("y", y(name)).attr("height", y.bandwidth()).attr("rx", 6).attr("width", 0).attr("fill", color);
+      anime({ targets: bar.node(), width: x(last + 1) - x(start), duration: reduced ? 0 : 1000, easing: "easeOutCubic" });
+      svg.append("text").attr("class", "fig-title").attr("x", x(start) + 10).attr("y", y(name) + y.bandwidth() * 0.65).style("font-size", "13px").attr("fill", "#14181f").text(`${pixel} squares, since ${start}`);
+    });
+    axisLabel("Today's live fires come from the same VIIRS cameras, about 3 hours after each pass.", b.x0, b.y1 + 6);
+  }
+  function processFigure() {
+    clearFigure();
+    const b = box(), steps = [
+      ["1", "Keep real wildfires", "vegetation fires, nominal or high confidence"],
+      ["2", "Count them", "in 28 km squares, week by week"],
+      ["3", "Translate", "old MODIS years into the new VIIRS units"],
+      ["4", "Check honestly", "rebuild each year while it is hidden, then compare"],
+    ];
+    const h = Math.min(92, (b.h - 30) / steps.length - 14), w = Math.min(560, b.w);
+    steps.forEach(([num, title, detail], i) => {
+      const y = b.y0 + 10 + i * (h + 16), g = svg.append("g").attr("opacity", 0);
+      g.append("rect").attr("x", b.x0).attr("y", y).attr("width", w).attr("height", h).attr("rx", 16).attr("fill", "rgba(255,255,255,.06)").attr("stroke", "rgba(255,255,255,.16)");
+      g.append("circle").attr("cx", b.x0 + 44).attr("cy", y + h / 2).attr("r", 22).attr("fill", "#ffd27a");
+      g.append("text").attr("x", b.x0 + 44).attr("y", y + h / 2 + 7).attr("text-anchor", "middle").style("font", "800 20px Manrope, sans-serif").attr("fill", "#2a1606").text(num);
+      g.append("text").attr("class", "fig-title").attr("x", b.x0 + 86).attr("y", y + h / 2 - 4).style("font-size", "19px").text(title);
+      g.append("text").attr("class", "fig-label").attr("x", b.x0 + 86).attr("y", y + h / 2 + 20).style("text-transform", "none").style("letter-spacing", "0").style("font-size", "14px").text(detail);
+      anime({ targets: g.node(), opacity: [0, 1], translateX: [24, 0], delay: reduced ? 0 : 250 * i, duration: reduced ? 0 : 500, easing: "easeOutQuad" });
+    });
+  }
+
   /* ------------------------------------------------------------------ Air story figures (from /api/findings) */
   let findings = null;
   function axisLabel(text, x, y, anchor = "start") { svg.append("text").attr("class", "fig-label").attr("x", x).attr("y", y).attr("text-anchor", anchor).text(text); }
@@ -309,7 +346,6 @@ const Story = (() => {
 
   /* ------------------------------------------------------------------ the viewer's place */
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-  const myName = () => (me ? me.name : HOME.name);
   const COMPASS = ["north", "north-east", "east", "south-east", "south", "south-west", "west", "north-west"];
   const compass = (deg) => COMPASS[Math.round(deg / 45) % 8];
   const airWord = (a) => (a && a.verdict ? a.verdict.air.label.toLowerCase() : "unknown");
@@ -335,11 +371,11 @@ const Story = (() => {
     meAir = await loadAir(me);
     if (!me || me.name !== p.name) return;
     if (out) out.innerHTML = airBox(meAir);
-    if (!meAir) { dialogue.say(`I couldn't reach the air service for ${esc(me.name)}. No problem, we'll try again at the end.`, "worried"); return; }
+    if (!meAir) { dialogue.say(`I couldn't reach the air service for ${esc(me.name)}. Press <strong>→</strong> and we'll try again inside GeoFlare Air.`, "worried"); return; }
     const n = meAir.sites[0], lvl = meAir.verdict.level;
     dialogue.say(`${esc(me.name)}: the air is <strong>${esc(airWord(meAir))}</strong> right now (index ${meAir.verdict.aqi ?? "?"}). `
       + (n ? `${meAir.site_count} gas flares and factories sit within 100 km, the closest ${n.km.toFixed(0)} km to the ${compass(n.bearing)}.` : "No flares or factories within 100 km. Lucky you!")
-      + " Keep that in mind. We'll come back to it.", lvl >= 4 ? "worried" : lvl <= 1 ? "happy" : "think");
+      + " Press <strong>→</strong> and I'll open your full report.", lvl >= 4 ? "worried" : lvl <= 1 ? "happy" : "think");
   }
 
   function wireWhere(root) {
@@ -383,14 +419,20 @@ const Story = (() => {
     if (!severity || !severity.points || severity.points.length < 30) return null;
     const pts = severity.points.filter((p) => p[4] >= 2 && p[3] > 0);
     const deg = (a, b) => d3.geoDistance([a[1], a[0]], [b[1], b[0]]) * 180 / Math.PI;
-    for (let t = 0; t < 40; t++) {
+    // Three fires the AI rates high, middle and low, from three different countries, far enough apart to tell apart.
+    const fits = (p, chosen) => p[5] && chosen.every((c) => c[5] !== p[5] && deg(p, c) >= 5);
+    for (let t = 0; t < 60; t++) {
       const anchor = pts[Math.floor(Math.random() * pts.length)];
-      const near = pts.filter((p) => deg(p, anchor) < 35);
+      const near = pts.filter((p) => deg(p, anchor) < 40 && p[5]);
       if (near.length < 3) continue;
       near.sort((a, b) => a[2] - b[2]);
-      const trio = [near[near.length - 1], near[Math.floor(near.length / 2)], near[0]];
-      if (trio[0][2] - trio[2][2] < 0.25) continue;                       // the AI must have a real opinion
-      if (Math.min(deg(trio[0], trio[1]), deg(trio[0], trio[2]), deg(trio[1], trio[2])) < 5) continue;   // far enough apart to tell apart on the globe
+      const hi = near[near.length - 1];
+      const mid = near.map((p, i) => [p, Math.abs(i - near.length / 2)]).sort((a, b) => a[1] - b[1]).map((x) => x[0]).find((p) => fits(p, [hi]));
+      if (!mid) continue;
+      const lo = near.find((p) => fits(p, [hi, mid]));
+      if (!lo) continue;
+      const trio = [hi, mid, lo];
+      if (hi[2] - lo[2] < 0.25) continue;                       // the AI must have a real opinion
       for (let i = trio.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [trio[i], trio[j]] = [trio[j], trio[i]]; }
       return { cards: trio.map((p, i) => ({ letter: "ABC"[i], lat: p[0], lon: p[1], p: p[2], frp: p[3], n: p[4], country: p[5] })), anchor };
     }
@@ -428,38 +470,32 @@ const Story = (() => {
   const yearTotal = () => (data && data.annual ? data.annual.harmonized[data.annual.years.indexOf(data.year)] : null);
   const cov = () => data && data.validation && data.validation.length ? data.band_coverage : null;
   const APPS = [
-    { view: "dashboard", name: "GeoFlare Dashboard", line: "Your place's fire calendar since 2003, today's fires, and the leaderboard." },
-    { view: "fires", name: "GeoFlare Fires", line: "Which fires could turn severe, the next four weeks, and the full archive map." },
-    { view: "air", name: "GeoFlare Air", line: "Is your air safe near flares and factories, and what to do about it." },
+    { view: "fires", name: "GeoFlare Fires", line: "Past: your place's fire calendar and the 2025 archive. Now: today's fires, which could turn severe, and the next four weeks." },
+    { view: "air", name: "GeoFlare Air", line: "Is your air safe near flares and factories, and what to do about it. Flick tells the story first." },
   ];
-  const myStepList = () => (meAir && meAir.steps ? `<ol class="story-steps">${meAir.steps.slice(0, 3).map((s) => `<li><strong>${esc(s.title)}</strong><span>${esc(s.text)}</span></li>`).join("")}</ol>` : "");
 
   const MAIN = [
     { chapter: "Team FLARECRAFT presents GeoFlare", title: () => "Right now, <em>fires</em> are burning.",
       stats: () => (live ? stats([[fmt(live.fires), "fire hotspots seen in the last day"], [fmt(live.severe), "of them giving off 10 MW or more"]]) : ""),
       enter: () => { clearFigure(); unpoint(); fadeGlobe(1); layers({ live: live ? 1 : 0, archive: live ? 0 : 0.7, cx: 0.66, globe: 1, spin: 0.07 }); },
       lines: [
-        { mood: "happy", say: "Hi, I'm <strong>Flick</strong>, a little spark from Assiut, Egypt. I get to watch every fire on the planet, through NASA's satellites." },
+        { mood: "happy", say: "Hi, I'm <strong>Flick</strong>, a little spark from Assiut, Egypt. I get to watch the planet's fires through NASA's satellites." },
         { mood: "wow", say: () => (live ? `Right now there are <strong>${fmt(live.fires)}</strong> of them. Every dot you see is a hotspot the satellites spotted since yesterday.` : "Right now there are thousands of them. Every dot is a hotspot the satellites spotted since yesterday.") },
         { mood: "wink", say: "Some are farms. Some are forests. And a few aren't fires at all. Stick with me and I'll show you which." },
       ] },
-    { chapter: "First, a question", title: () => "Where do <em>you</em> live?",
-      panel: () => `<div class="story-panel"><div class="story-ask"><input id="story-q" placeholder="Your town or city" autocomplete="off" aria-label="Your town or city"></div>
-        <div id="story-results" class="story-results"></div>
-        <div class="story-chips">${PLACES.map((p, i) => `<button data-place="${i}">${p.name}</button>`).join("")}<button id="story-locate" class="strong">Use my location</button></div>
-        <div id="story-me"></div></div>`,
-      wire: wireWhere,
-      stats: () => "",
-      enter: () => { clearFigure(); fadeGlobe(1); layers({ flares: me ? 1 : 0, archive: me ? 0.1 : 0.5, pin: me ? 1 : 0, cx: 0.66, globe: me ? 1.6 : 1, spin: 0.05 }); if (!me) { pin = { ...HOME }; } },
+    { chapter: "Where this comes from", title: () => "NASA's satellites, <em>one public archive</em>",
+      stats: () => (data && data.annual ? stats([[fmt(d3.sum(data.annual.harmonized)), `fire hotspots in our record, ${data.annual.years[0]}–${data.annual.years[data.annual.years.length - 1]}`], ["FIRMS", "NASA's open fire archive, free for everyone"]]) : ""),
+      enter: () => { unpoint(); fadeGlobe(0.1); layers({ archive: 0.2 }); sourceFigure(); },
       lines: [
-        { mood: "think", say: "Before we start, I'd like to know where home is for you. Type your town, tap one below, or let me find you. Or skip ahead with <strong>→</strong>." },
+        { mood: "think", say: "How do I know? From <strong>NASA FIRMS</strong>. Every time a satellite spots heat on the ground, it logs the place, the time and how strong it was." },
+        { mood: "proud", say: "Two kinds of camera fill the archive: <strong>MODIS</strong> since 2000 and the sharper <strong>VIIRS</strong> since 2012. Everything you'll see comes from these public files." },
       ] },
     { chapter: "Chapter 1 · A year of fire", title: () => `${data ? data.year : "One year"}, one week at a time`,
       stats: () => (yearTotal() ? stats([[fmt(yearTotal()), `fire hotspots seen from space in ${data.year}`]]) : ""),
       enter: () => { clearFigure(); unpoint(); fadeGlobe(1); playWeeks(); layers({ archive: 1, cx: 0.66, globe: 1, spin: 0.08 }); },
       exit: stopWeeks,
       lines: [
-        { mood: "wow", say: "This is every fire of 2025, week by week. Watch the counter in the corner climb!" },
+        { mood: "wow", say: "These are the fires satellites saw in 2025, week by week. Watch the counter in the corner climb!" },
         { mood: "think", say: "See that band sweeping across Africa? That's the dry season moving. Farmers and grasslands burn on a calendar.",
           beat: () => { rotateTo(20, -2, 1600).then(() => { view.spin = 0.02; point(24, -9, "Africa's dry-season fires", 130); }); } },
       ] },
@@ -487,6 +523,13 @@ const Story = (() => {
       lines: [
         { mood: "proud", say: "Our model studied every week when both satellites flew together, and learned how many fires the new eye sees for whatever the old eye saw." },
         { mood: "happy", say: "Then it rebuilt the old years in the new eye's units. The fake jump is gone. We tested it on years it never saw, and gave every number an honest range. That's your fire diary: every place, every week since 2003." },
+      ] },
+    { chapter: "Chapter 3 · How we processed it", title: () => "From raw pixels to <em>your calendar</em>",
+      stats: () => "",
+      enter: () => { fadeGlobe(0.1); processFigure(); },
+      lines: [
+        { mood: "think", say: "Raw detections are messy, so we cleaned them in four steps. First we kept real wildfires only: no volcanoes, no factories, no low-confidence blips." },
+        { mood: "proud", say: "Then we counted them in 28 km squares, week by week, translated the old years into the new camera's units, and checked the result on years the model never saw." },
       ] },
     { chapter: "Chapter 4 · Today", title: () => (live ? `<em>${fmt(live.fires)}</em> fires, and counting` : "Fires burning <em>right now</em>"),
       stats: () => (live ? stats([[live.countries[0] ? live.countries[0].country : "—", "burning most today"], [live.biggest[0] ? `${fmt(live.biggest[0].frp)} MW` : "—", live.biggest[0] ? `the fiercest, in ${live.biggest[0].country || "open country"}` : "fiercest fire"]]) : ""),
@@ -524,39 +567,20 @@ const Story = (() => {
       enter: () => { clearFigure(); fadeGlobe(1); layers({ flares: 1, archive: 0.12, globe: 1.25, cx: 0.66 }); rotateTo(48, 27); },
       lines: [
         { mood: "think", say: "Wait. Look closer. These blue dots glow every single week, summer and winter. Fires don't do that." },
-        { mood: "wow", say: "They're not wildfires. They're <strong>gas flares and factories</strong>, burning day and night. Satellites see them too. This isn't all satellites can do!",
+        { mood: "wow", say: "They're not wildfires. They're <strong>gas flares and factories</strong>, burning day and night. Fires aren't the only thing satellites can see! Open the <strong>Air</strong> tab later and I'll tell you their story.",
           beat: () => point(48.5, 29.5, "Gas flares of the Gulf", 90) },
       ] },
-    { id: "air", chapter: () => `Chapter 5 · Back to ${myName()}`, title: () => `Now, <em>your</em> air`,
-      panel: () => `<div class="story-panel">${airBox(meAir)}${myStepList()}
-        <div class="story-chips"><button class="strong" id="story-open-air">Open my full air report</button></div></div>`,
-      wire: (root) => root.querySelector("#story-open-air").addEventListener("click", (e) => { e.stopPropagation(); const p = me || { ...HOME, lat: 27.18, lon: 31.18 }; finish({ view: "air", sub: `${p.lat},${p.lon},${encodeURIComponent(p.name)}`, tour: false }); }),
-      stats: () => "",
-      enter: async () => {
-        clearFigure(); fadeGlobe(1); unpoint();
-        const p = me || { name: "Assiut", lat: 27.18, lon: 31.18 };
-        pin = { lon: p.lon, lat: p.lat, name: p.name };
-        layers({ flares: 1, pin: 1, globe: 1.6, cx: 0.66 }); rotateTo(p.lon, p.lat);
-        if (!meAir) { meAir = await loadAir(p); if (scenes[scene] && scenes[scene].id === "air") { render(scenes[scene]); sayLine(); } }
-      },
-      lines: [
-        { mood: () => (meAir && meAir.verdict.level >= 4 ? "worried" : "think"), say: () => (meAir
-            ? `So, ${esc(myName())}. Here's your air today: <strong>${esc(airWord(meAir))}</strong>, index ${meAir.verdict.aqi ?? "?"}. ${meAir.sites[0] ? `The closest flare or factory is ${meAir.sites[0].km.toFixed(0)} km to the ${compass(meAir.sites[0].bearing)}.` : "No flare or factory is within 100 km."}`
-            : "Millions of people live right next to these flames. Flares that burn badly put soot, nitrogen dioxide and sulphur into the air they breathe.") },
-        { mood: "proud", say: () => (meAir && meAir.steps && meAir.steps.length ? `Here's what I'd do today: <strong>${esc(meAir.steps[0].title.toLowerCase())}</strong>. ${esc(meAir.steps[0].text)}` : "That's why we built GeoFlare Air.") },
-        { mood: "happy", say: "That's <strong>GeoFlare Air</strong>. Tap the button for the whole report, with the wind map and animated steps. Or press <strong>→</strong> to meet the team." },
-      ] },
-    { chapter: "Team FLARECRAFT · Assiut, Egypt", title: () => "Made by <em>three friends</em>",
+    { chapter: "Team FLARECRAFT · Assiut, Egypt", title: () => "Made by <em>five friends</em>",
       stats: () => `<div class="team">${team.map(([i, name]) => `<div class="member"><span class="avatar">${i}</span>${name}</div>`).join("")}</div>`,
       enter: () => { clearFigure(); fadeGlobe(1); pin = { ...HOME, lat: 27.18, lon: 31.18, name: "Assiut" }; layers({ archive: 0.45, pin: 1, globe: 1.1, cx: 0.66, spin: 0.05 }); rotateTo(HOME.lon, HOME.lat - 6, 1600); },
       lines: [
         { mood: "laugh", say: "These are my humans: the two Beshoys, George, Mathew and Sondos. They built all of this for NASA Space Apps 2026, to show that science and fun aren't opposites." },
       ] },
-    { chapter: "Your turn", title: () => "Three apps. <em>One planet.</em>",
+    { chapter: "Your turn", title: () => "Two apps. <em>One planet.</em>",
       stats: () => `<div class="story-apps">${APPS.map((a) => `<button class="story-app ${a.view}" data-app="${a.view}"><strong>${a.name}</strong><span>${a.line}</span></button>`).join("")}</div>`,
       enter: () => { clearFigure(); unpoint(); fadeGlobe(1); layers({ live: live ? 0.8 : 0, archive: live ? 0 : 0.8, flares: 0.4, globe: 1, cx: 0.66, spin: 0.06 }); },
       lines: [
-        { mood: "happy", say: "Where to first? Tap one of the three, or press <strong>→</strong> and I'll start you on the Dashboard. I'll come along and help." },
+        { mood: "happy", say: "Where to first? Tap one, or press <strong>→</strong> and I'll start you in Fires. I'll come along and help." },
       ] },
   ];
 
@@ -602,17 +626,28 @@ const Story = (() => {
         { mood: "proud", say: "So here's our answer: they share a season and often a neighbourhood, but one doesn't drive the other. They're two separate problems." },
       ] },
     { chapter: "GeoFlare Air · What connects them", title: () => "One thing they <em>share</em>: your lungs",
-      panel: () => `<div class="story-panel"><div class="story-chips"><button class="strong" id="story-check-air">Check the air where I live</button></div></div>`,
-      wire: (root) => root.querySelector("#story-check-air").addEventListener("click", (e) => { e.stopPropagation(); finish({ view: "air" }); }),
       stats: () => "",
       enter: () => { clearFigure(); unpoint(); fadeGlobe(1); layers({ live: live ? 0.9 : 0, archive: live ? 0 : 0.6, flares: 1, globe: 1.05, cx: 0.66, spin: 0.05 }); },
       lines: [
         { mood: "worried", say: "Here's what does connect them: the air. Smoke from a wildfire and soot from a flare end up in the same lungs." },
-        { mood: "happy", say: "So GeoFlare Air checks both wherever you live: the air right now, the flares and factories around you, and which way the wind blows. Let's check yours!" },
+        { mood: "happy", say: "So GeoFlare Air checks both wherever you live: the air right now, the flares and factories around you, and which way the wind blows." },
+      ] },
+      { chapter: "GeoFlare Air · Your turn", title: () => "Where do <em>you</em> live?",
+      panel: () => `<div class="story-panel"><div class="story-ask"><input id="story-q" placeholder="Your town or city" autocomplete="off" aria-label="Your town or city"></div>
+        <div id="story-results" class="story-results"></div>
+        <div class="story-chips">${PLACES.map((p, i) => `<button data-place="${i}">${p.name}</button>`).join("")}<button id="story-locate" class="strong">Use my location</button></div>
+        <div id="story-me"></div></div>`,
+      wire: wireWhere,
+      stats: () => "",
+      enter: () => { clearFigure(); fadeGlobe(1); layers({ flares: me ? 1 : 0, archive: me ? 0.1 : 0.5, pin: me ? 1 : 0, cx: 0.66, globe: me ? 1.6 : 1, spin: 0.05 }); if (!me) { pin = { ...HOME }; } },
+      lines: [
+        { mood: "think", say: "Now, where is home for you? Type your town, tap one below, or let me find you, and I'll check your air." },
       ] },
   ];
   let mode = "main";
-  const fallback = () => (mode === "air" ? { view: "air" } : { view: "dashboard" });
+  // Leaving the Air story opens GeoFlare Air on the town the viewer picked (if any); leaving the main story opens Fires.
+  const airDone = () => ({ view: "air", sub: me ? `${me.lat},${me.lon},${encodeURIComponent(me.name)}` : "" });
+  const fallback = () => (mode === "air" ? airDone() : { view: "fires" });
 
   /* ------------------------------------------------------------------ playing it */
   const val = (x) => (typeof x === "function" ? x() : x);
@@ -637,7 +672,7 @@ const Story = (() => {
   }
   let scenes = MAIN;
   function go(i, atLine = 0) {
-    if (i >= scenes.length) return finish(mode === "air" ? { view: "air" } : { view: "dashboard", tour: true });
+    if (i >= scenes.length) return finish(mode === "air" ? airDone() : { view: "fires", tour: true });
     if (i < 0) return;
     if (i !== scene) {
       const prev = scenes[scene];
@@ -689,7 +724,7 @@ const Story = (() => {
     if (!land) {
       const [intro, world] = await Promise.all([
         fetch("/api/intro").then((r) => r.json()).catch(() => null),
-        d3.json("https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/land-110m.json").catch(() => null),
+        d3.json("/vendor/land-110m.json").catch(() => null),
       ]);
       data = intro;
       if (world) land = topojson.feature(world, world.objects.land);
