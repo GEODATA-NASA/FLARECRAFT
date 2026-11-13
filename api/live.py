@@ -3,7 +3,7 @@
 Live data: the public FIRMS active-fire CSVs (VIIRS S-NPP + NOAA-20, last 24 hours), refreshed
 every 30 minutes. They carry no hotspot "type", so persistent industrial sources are recognised
 from the 23-year archive: a cell that showed static heat sources in many weeks is a factory or flare.
-Severity: the GeoData AI random forest (POST /api/v1/predict/batch on the sibling service).
+Severity: the GeoData AI CatBoost model (POST /api/v1/predict/batch on the sibling service).
 """
 
 import datetime as dt
@@ -124,11 +124,19 @@ class Live:
                 "severe": int((fires.frp >= 10).sum()), "frp_total": float(fires.frp.sum()),
                 "countries": [{"country": c, "fires": int(n)} for c, n in countries.items()],
                 "cells": g[["lat", "lon", "n", "frp_max", "industrial"]].round(3).values.tolist(),
-                "biggest": [{"lat": round(r.lat, 2), "lon": round(r.lon, 2), "frp": round(float(r.frp_max), 1), "n": int(r.n),
-                             "country": self.country_of([r.cell])[0]} for r in fire_cells.sort_values("frp_max", ascending=False).head(6).itertuples()],
+                "biggest": self.biggest_by_country(fire_cells),
                 "globe": self.globe_points(g),
             }
         return self.cached(f"sum-{window}", build)
+
+    def biggest_by_country(self, fire_cells, top=8):
+        """The fiercest fire square in each country, so one burning region cannot fill the whole list."""
+        ranked = fire_cells.sort_values("frp_max", ascending=False).head(400).copy()
+        ranked["country"] = self.country_of(ranked.cell)
+        ranked["key"] = ranked.country.fillna(ranked.cell.astype(str))
+        ranked = ranked.drop_duplicates("key").head(top)
+        return [{"lat": round(r.lat, 2), "lon": round(r.lon, 2), "frp": round(float(r.frp_max), 1), "n": int(r.n), "country": r.country}
+                for r in ranked.itertuples()]
 
     @staticmethod
     def globe_points(g, limit=3500):
@@ -147,6 +155,23 @@ class Live:
             raise GeoDataUnavailable(f"GeoData AI answered {response.status_code}: {response.text[:200]}")
         return np.array([p["high_frp_probability"] for p in response.json()["predictions"]])
 
+    def model_threshold(self):
+        """The decision threshold saved with the GeoData model (recall-first), or 0.5 for older models."""
+        try:
+            return float(requests.get(f"{GEODATA_API}/api/v1/model", timeout=20).json().get("decision_threshold") or 0.5)
+        except (requests.RequestException, ValueError, TypeError):
+            return 0.5
+
+    def place_time_scale(self):
+        """The model is trained with balanced class weights, so its raw chance runs high. For place-and-time-only
+        requests the artifact records the mean chance and the true severe share on the hold-out; their ratio turns
+        the outlook's expected severe counts honest (about 0.26 / 0.46 for the current model)."""
+        try:
+            blank = requests.get(f"{GEODATA_API}/api/v1/model", timeout=20).json()["metrics"]["blank_inputs"]
+            return min(1.0, blank["observed_high_frp_share"] / blank["place_and_time_only"]["mean_probability"])
+        except (requests.RequestException, KeyError, TypeError, ZeroDivisionError):
+            return 1.0
+
     def severity(self, window="24h", sample=4000):
         """Score live fires with the GeoData model, then grade it against the fire power the satellites measured."""
         def build():
@@ -160,7 +185,8 @@ class Live:
             } for r in fires.itertuples()]
             p = self.predict(obs)
             actual = (fires.frp.to_numpy() >= 10)
-            flagged = p >= 0.5
+            threshold = self.model_threshold()
+            flagged = p >= threshold
             bins = np.clip((p * 5).astype(int), 0, 4)
             calibration = [{"range": f"{i * 20}-{i * 20 + 20}%", "fires": int((bins == i).sum()),
                             "actually_severe": float(actual[bins == i].mean()) if (bins == i).any() else None} for i in range(5)]
@@ -173,8 +199,8 @@ class Live:
                 "auc": float(roc_auc_score(actual, p)) if 0 < actual.sum() < len(actual) else None,
                 "flagged": int(flagged.sum()), "flagged_right": float(actual[flagged].mean()) if flagged.any() else None,
                 "severe_caught": float(flagged[actual].mean()) if actual.any() else None,
-                "severe_share": float(actual.mean()), "calibration": calibration,
-                "points": cells[["lat", "lon", "p", "frp", "n"]].round(3).values.tolist(),
+                "severe_share": float(actual.mean()), "calibration": calibration, "threshold": threshold,
+                "points": [[*row, c] for row, c in zip(cells[["lat", "lon", "p", "frp", "n"]].round(3).values.tolist(), self.country_of(cells.cell))],
                 "watchlist": [{"lat": round(r.latitude, 2), "lon": round(r.longitude, 2), "p": round(float(r.p), 2),
                                "frp": round(float(r.frp), 1), "country": self.country_of([r.cell])[0]} for r in top.itertuples()],
             }
@@ -200,8 +226,8 @@ class Live:
             day = dt.date(2025, 1, 1) + dt.timedelta(days=span[len(span) // 2] * 7 + 3)
             obs = [{"latitude": float(r.lat), "longitude": float(r.lon), "acq_date": day.isoformat(), "acq_time": 1330, "type": 0}
                    for r in frame.itertuples()]
-            frame["p"] = self.predict(obs)
-            frame["severe"] = frame.usual * frame.p
+            frame["p"] = self.predict(obs)                          # raw chance: ranks and colours places
+            frame["severe"] = frame.usual * frame.p * self.place_time_scale()   # honest expected count
             frame["country"] = self.country_of(frame.cell)
             by_country = frame.groupby("country").agg(usual=("usual", "sum"), severe=("severe", "sum")).sort_values("severe", ascending=False).head(8)
             label = lambda w: (dt.date(2001, 1, 1) + dt.timedelta(days=w * 7)).strftime("%d %b")

@@ -1,27 +1,46 @@
-"""Ember Almanac API: harmonized MODIS + VIIRS burning-activity calendar."""
+"""GeoFlare API: the harmonized MODIS + VIIRS fire calendar, live fires, severity, and air near industry.
 
+One server for the three GeoFlare apps (Dashboard, Fires, Air). Calls to the GeoData AI service
+(severity model, fire archive, assistant) go through /geodata/ so the browser sees one origin.
+"""
+
+import asyncio
 import io
+import re
 import os
 import threading
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query
+import json
+
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.gzip import GZipMiddleware
 import requests
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+from api.air import Air
 from api.analytics import analyse
-from api.live import GeoDataUnavailable, Live
+from api.live import GEODATA_API, GeoDataUnavailable, Live
 from api.store import Store
 from pipeline.config import DATA_DIR, ROOT
 
 PRODUCT = Path(os.getenv("EMBER_PRODUCT", DATA_DIR / "product"))
 WEB = ROOT / "web"
 
-app = FastAPI(title="Ember Almanac", version="1.0",
-              description="A harmonized MODIS + VIIRS burning-activity calendar for any area on Earth.")
+app = FastAPI(title="GeoFlare", version="2.0",
+              description="GeoFlare Dashboard, Fires and Air: a harmonized MODIS + VIIRS fire record, live fires scored for severity, "
+                          "and the air around gas flares and factories.")
 app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+
+@app.middleware("http")
+async def fresh_pages(request: Request, call_next):
+    """Pages and scripts are revalidated on every load, so a browser never runs a stale copy after an update."""
+    response = await call_next(request)
+    if not request.url.path.startswith(("/api/", "/geodata/")):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
 store = Store(PRODUCT)
 
 
@@ -83,10 +102,11 @@ def calendar(bbox: str | None = Query(None, description="west,south,east,north")
 
 
 @app.get("/api/map")
-def map_layer(year: int, week_from: int = 0, week_to: int = 51, bbox: str | None = None):
+def map_layer(year: int, week_from: int = 0, week_to: int = 51, bbox: str | None = None, country: str | None = None):
     if not (store.first_year <= year <= store.last_year):
         raise HTTPException(422, "year out of range")
-    frame = store.cell_values(year, max(0, week_from), min(51, week_to), parse_bbox(bbox))
+    box, name = area(bbox, country)
+    frame = store.cell_values(year, max(0, week_from), min(51, week_to), box, country=name)
     return {"year": year, "observed": year >= store.viirs_start,
             "points": frame[["lat", "lon", "value", "ind"]].round(3).values.tolist()}
 
@@ -101,7 +121,7 @@ def export(bbox: str | None = None, country: str | None = None):
     frame.to_csv(buffer, index=False, float_format="%.2f")
     label = (name or "bbox").replace(" ", "_")
     return StreamingResponse(iter([buffer.getvalue()]), media_type="text/csv",
-                             headers={"Content-Disposition": f'attachment; filename="ember_almanac_{label}.csv"'})
+                             headers={"Content-Disposition": f'attachment; filename="geoflare_{label}.csv"'})
 
 
 @app.get("/api/intro")
@@ -165,10 +185,69 @@ def industry():
     return live.industry()
 
 
+air = Air(store, live)
+
+
+@app.get("/api/air")
+def air_report(lat: float = Query(..., ge=-90, le=90), lon: float = Query(..., ge=-180, le=180), radius_km: int = Query(100, ge=10, le=200)):
+    """How safe is the air here: live air quality and wind, nearby industrial heat sources, facts and precautions."""
+    return air.report(round(lat, 4), round(lon, 4), radius_km)
+
+
+@app.get("/api/places")
+def places(q: str = Query(..., min_length=2, max_length=80)):
+    """Place search for the Air check (Open-Meteo geocoding)."""
+    try:
+        return air.places(q)
+    except requests.RequestException as error:
+        raise HTTPException(503, f"Place search is unavailable: {error}")
+
+
+@app.get("/api/rankings")
+def rankings():
+    """Country leaderboard: fewest severe fires and least industrial heat per 1,000 km2 (python -m pipeline.rankings)."""
+    path = PRODUCT / "rankings.json"
+    if not path.exists():
+        raise HTTPException(404, "rankings not built yet: run python -m pipeline.rankings")
+    if store.rankings_cache is None:
+        store.rankings_cache = json.loads(path.read_text(encoding="utf-8"))
+    return store.rankings_cache
+
+
+@app.api_route("/geodata/{path:path}", methods=["GET", "POST"], include_in_schema=False)
+async def geodata(path: str, request: Request):
+    """Same-origin pass-through to the GeoData AI service, so GeoFlare Fires runs inside this app."""
+    if not (path == "health" or path.startswith("api/v1/")):
+        raise HTTPException(404)
+    body = await request.body()
+    try:
+        upstream = await asyncio.to_thread(requests.request, request.method, f"{GEODATA_API}/{path}", params=list(request.query_params.multi_items()),
+                                           data=body or None, headers={"Content-Type": request.headers.get("content-type", "application/json")}, timeout=180)
+    except requests.RequestException:
+        raise HTTPException(503, f"The GeoData AI service is not running at {GEODATA_API}. Start it with start.cmd.")
+    return Response(upstream.content, status_code=upstream.status_code, media_type=upstream.headers.get("content-type"))
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "years": [store.first_year, store.last_year]}
 
+
+# Each GeoFlare app has its own address, so it can be opened on its own: /dashboard, /fires, /air.
+def page():
+    """index.html with every local script and stylesheet tagged with its modified time, so an update always loads fresh files."""
+    html = (WEB / "index.html").read_text(encoding="utf-8")
+
+    def tag(match):
+        name = match.group(2)
+        file = WEB / name.lstrip("/")
+        return f'{match.group(1)}{name}?v={int(file.stat().st_mtime)}"' if file.is_file() else match.group(0)
+    html = re.sub(r'((?:src|href)=")(/[\w.-]+\.(?:js|css))"', tag, html)
+    return Response(html, media_type="text/html", headers={"Cache-Control": "no-cache"})
+
+
+for route in ("", "dashboard", "fires", "air"):
+    app.add_api_route(f"/{route}", page, include_in_schema=False)
 
 if WEB.exists():
     app.mount("/", StaticFiles(directory=WEB, html=True), name="web")
