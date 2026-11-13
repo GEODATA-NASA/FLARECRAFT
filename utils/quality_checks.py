@@ -6,24 +6,32 @@ logger = logging.getLogger("GeoDataAI.QualityCheck")
 def validate_fire_data(
     df: pd.DataFrame, *, raise_if_empty: bool = True
 ) -> pd.DataFrame:
-    """Perform data quality checks on fire data"""
+    """Perform robust data quality checks on fire data"""
     initial_count = len(df)
     logger.info(f"Starting data quality checks on {initial_count} rows...")
 
-    # 1. Make sure latitude and longitude are within valid ranges
-    valid_coords = (
-        df["latitude"].between(-90, 90) & 
-        df["longitude"].between(-180, 180)
-    )
-    df = df[valid_coords]
+    if df.empty:
+        if raise_if_empty:
+            raise ValueError("Critical Error: Provided dataframe is empty!")
+        return df
 
-    # 2. Ensure brightness and frp values are non-negative and logical
-    if "brightness" in df.columns:
-        df = df[df["brightness"] > 0]
+    # 1. التأكد من أن الإحداثيات تقع ضمن النطاقات الجغرافية الصحيحة
+    if "latitude" in df.columns and "longitude" in df.columns:
+        valid_coords = (
+            df["latitude"].between(-90, 90, inclusive="both") & 
+            df["longitude"].between(-180, 180, inclusive="both")
+        )
+        df = df[valid_coords]
+
+    # 2. فحص قيم السطوع والـ FRP (مع دعم مسميات MODIS و VIIRS المختلفة مثل bright_ti4)
+    brightness_cols = [c for c in ["brightness", "bright_ti4", "bright_ti5"] if c in df.columns]
+    for col in brightness_cols:
+        df = df[df[col].isna() | (df[col] > 0)]
+
     if "frp" in df.columns:
-        df = df[df["frp"] >= 0]
+        df = df[df["frp"].isna() | (df["frp"] >= 0)]
 
-    # 3. Remove completely duplicated rows
+    # 3. إزالة الصفوف المكررة تماماً
     df = df.drop_duplicates()
 
     final_count = len(df)

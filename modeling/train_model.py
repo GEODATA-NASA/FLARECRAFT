@@ -8,15 +8,15 @@ joins.
 Environment switches (see README):
 
 * ``REQUIRE_WEATHER_MATCH`` (default 1): keep only fires matched to a same-day
-  weather record. Set to 0 to train on every detection; unmatched rows get NaN
-  weather which the pipeline's imputer fills. Use this when weather coverage is
-  much smaller than fire coverage, otherwise the model only learns one region.
+  weather record. Set to 0 to train on every detection; CatBoost handles missing
+  weather values natively. Use this when weather coverage is much smaller than
+  fire coverage, otherwise the model only learns one region.
 * ``TRAINING_SOURCE`` (default db): ``csv`` trains from ``cleaned_data/`` without
   PostgreSQL (``FIRES_SAMPLE_FILE`` is used when present).
 * ``MODEL_ARTIFACT_PATH``: where to save the model.
 * ``FORCE_RETRAIN`` (default 0): retrain even when the artifact already exists.
-* ``RF_N_ESTIMATORS`` / ``RF_MIN_SAMPLES_LEAF`` / ``RF_MAX_DEPTH`` (200 / 20 / 18):
-  forest size; ``RF_MAX_DEPTH=0`` means unlimited.
+* ``CATBOOST_ITERATIONS`` / ``CATBOOST_DEPTH`` / ``CATBOOST_LEARNING_RATE``
+  (500 / 6 / 0.05): boosting rounds, tree depth, and learning rate.
 """
 
 import logging
@@ -27,9 +27,10 @@ from pathlib import Path
 import joblib
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.calibration import calibration_curve
 from sklearn.metrics import (
     accuracy_score,
+    brier_score_loss,
     classification_report,
     confusion_matrix,
     f1_score,
@@ -37,10 +38,7 @@ from sklearn.metrics import (
     recall_score,
     roc_auc_score,
 )
-from sklearn.impute import SimpleImputer
 from sklearn.neighbors import BallTree
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
 from sqlalchemy import URL, create_engine, inspect, text
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -59,11 +57,11 @@ MODEL_ARTIFACT_PATH = Path(
 )
 REQUIRE_WEATHER_MATCH = os.getenv("REQUIRE_WEATHER_MATCH", "1").lower() not in {"0", "false", "no"}
 TRAINING_SOURCE = os.getenv("TRAINING_SOURCE", "db").strip().lower()
-# Forest size. Small leaves on hundreds of thousands of rows produce artifacts of
-# a gigabyte or more; the defaults below keep the file in the tens of megabytes.
-RF_N_ESTIMATORS = int(os.getenv("RF_N_ESTIMATORS", "200"))
-RF_MIN_SAMPLES_LEAF = int(os.getenv("RF_MIN_SAMPLES_LEAF", "20"))
-RF_MAX_DEPTH = int(os.getenv("RF_MAX_DEPTH", "18")) or None
+CATBOOST_ITERATIONS = int(os.getenv("CATBOOST_ITERATIONS", "500"))
+CATBOOST_DEPTH = int(os.getenv("CATBOOST_DEPTH", "6"))
+CATBOOST_LEARNING_RATE = float(os.getenv("CATBOOST_LEARNING_RATE", "0.05"))
+CATBOOST_L2_LEAF_REG = float(os.getenv("CATBOOST_L2_LEAF_REG", "3.0"))
+MODEL_TYPE = "CatBoostClassifier"
 # Retrain even when an artifact exists (scheduled retraining, new weather data).
 FORCE_RETRAIN = os.getenv("FORCE_RETRAIN", "0").lower() in {"1", "true", "yes"}
 EARTH_RADIUS_KM = 6371.0088
@@ -483,25 +481,70 @@ def temporal_split(data):
     return train, test, cutoff
 
 
+def evaluate_generalization_and_calibration(model, test_df, feature_columns):
+    """Measure probability calibration and latitude-based holdout performance."""
+    X_test = test_df[feature_columns]
+    y_test = test_df["target"]
+    probabilities = model.predict_proba(X_test)[:, 1]
+    brier = float(brier_score_loss(y_test, probabilities))
+    fraction_of_positives, mean_predicted_probability = calibration_curve(
+        y_test, probabilities
+    )
+
+    spatial_eval = {}
+    if "latitude" in test_df.columns:
+        latitude = pd.to_numeric(test_df["latitude"], errors="coerce")
+        valid_latitude = latitude.notna()
+        if valid_latitude.any():
+            median_latitude = latitude.loc[valid_latitude].median()
+            spatial_groups = {
+                "north": valid_latitude & latitude.ge(median_latitude),
+                "south": valid_latitude & latitude.lt(median_latitude),
+            }
+            for name, mask in spatial_groups.items():
+                subset = test_df.loc[mask]
+                if not subset.empty and subset["target"].nunique() > 1:
+                    subset_probabilities = model.predict_proba(
+                        subset[feature_columns]
+                    )[:, 1]
+                    spatial_eval[f"roc_auc_{name}"] = float(
+                        roc_auc_score(subset["target"], subset_probabilities)
+                    )
+
+    LOGGER.info("Model Calibration Brier Score: %.4f (lower is better)", brier)
+    return {
+        "brier_score": brier,
+        "calibration_curve": {
+            "mean_predicted_probability": mean_predicted_probability.tolist(),
+            "fraction_of_positives": fraction_of_positives.tolist(),
+        },
+        "spatial_generalization": spatial_eval,
+    }
+
+
 def train_and_evaluate(data, feature_columns):
-    """Train, report metrics and feature importances, then save the pipeline."""
+    """Train CatBoost, report holdout metrics, and save the model artifact."""
+    try:
+        from catboost import CatBoostClassifier
+    except ModuleNotFoundError as error:
+        raise ModuleNotFoundError(
+            "CatBoost is required to train the production model. "
+            "Install it with: pip install -r requirements.txt"
+        ) from error
+
     train, test, cutoff = temporal_split(data)
-    model = Pipeline(
-        steps=[
-            ("imputer", SimpleImputer(strategy="median", keep_empty_features=True)),
-            ("scaler", StandardScaler()),
-            (
-                "classifier",
-                RandomForestClassifier(
-                    n_estimators=RF_N_ESTIMATORS,
-                    min_samples_leaf=RF_MIN_SAMPLES_LEAF,
-                    max_depth=RF_MAX_DEPTH,
-                    class_weight="balanced_subsample",
-                    random_state=42,
-                    n_jobs=-1,
-                ),
-            ),
-        ]
+    model = CatBoostClassifier(
+        iterations=CATBOOST_ITERATIONS,
+        depth=CATBOOST_DEPTH,
+        learning_rate=CATBOOST_LEARNING_RATE,
+        l2_leaf_reg=CATBOOST_L2_LEAF_REG,
+        loss_function="Logloss",
+        eval_metric="AUC",
+        auto_class_weights="Balanced",
+        random_seed=42,
+        thread_count=-1,
+        verbose=False,
+        allow_writing_files=False,
     )
     model.fit(train[feature_columns], train["target"])
     predictions = model.predict(test[feature_columns])
@@ -516,6 +559,9 @@ def train_and_evaluate(data, feature_columns):
         "train_rows": int(len(train)),
         "test_period_start": str(pd.Timestamp(cutoff).date()),
     }
+    metrics.update(
+        evaluate_generalization_and_calibration(model, test, feature_columns)
+    )
 
     LOGGER.info("Chronological test period begins %s.", pd.Timestamp(cutoff).date())
     LOGGER.info(
@@ -539,7 +585,11 @@ def train_and_evaluate(data, feature_columns):
     LOGGER.info("Confusion matrix [normal_frp, high_frp]:\n%s", confusion_matrix(
         test["target"], predictions, labels=[0, 1]
     ))
-    importances = model.named_steps["classifier"].feature_importances_
+    importances = np.asarray(model.feature_importances_, dtype=float)
+    importance_total = float(importances.sum())
+    if not np.isfinite(importances).all() or importance_total <= 0:
+        raise ValueError("CatBoost returned invalid or zero-sum feature importances.")
+    importances /= importance_total
     importance_report = sorted(
         zip(feature_columns, importances), key=lambda item: item[1], reverse=True
     )
@@ -555,6 +605,7 @@ def train_and_evaluate(data, feature_columns):
     joblib.dump(
         {
             "model": model,
+            "model_type": MODEL_TYPE,
             "feature_columns": feature_columns,
             "target": f"frp >= {HIGH_FRP_THRESHOLD} MW",
             "weather_features": [
@@ -566,9 +617,11 @@ def train_and_evaluate(data, feature_columns):
             "high_frp_threshold_mw": HIGH_FRP_THRESHOLD,
             "max_weather_distance_km": MAX_WEATHER_DISTANCE_KM,
             "hyperparameters": {
-                "n_estimators": RF_N_ESTIMATORS,
-                "min_samples_leaf": RF_MIN_SAMPLES_LEAF,
-                "max_depth": RF_MAX_DEPTH,
+                "iterations": CATBOOST_ITERATIONS,
+                "depth": CATBOOST_DEPTH,
+                "learning_rate": CATBOOST_LEARNING_RATE,
+                "l2_leaf_reg": CATBOOST_L2_LEAF_REG,
+                "auto_class_weights": "Balanced",
             },
         },
         temp_path,
@@ -584,15 +637,27 @@ def main():
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
     if MODEL_ARTIFACT_PATH.is_file() and not FORCE_RETRAIN:
-        joblib.load(MODEL_ARTIFACT_PATH)
-        LOGGER.info("Loaded existing model; ready at %s.", MODEL_ARTIFACT_PATH)
-        return 0
+        artifact = joblib.load(MODEL_ARTIFACT_PATH)
+        if artifact.get("model_type") == MODEL_TYPE:
+            LOGGER.info("Loaded existing %s model; ready at %s.", MODEL_TYPE, MODEL_ARTIFACT_PATH)
+            return 0
+        LOGGER.info("Existing model artifact is not %s; retraining.", MODEL_TYPE)
 
     if FIRE_CHUNK_SIZE <= 0 or MAX_TRAINING_ROWS <= 0:
         LOGGER.error("FIRE_CHUNK_SIZE and MAX_TRAINING_ROWS must be positive integers.")
         return 2
-    if HIGH_FRP_THRESHOLD < 0 or MAX_WEATHER_DISTANCE_KM <= 0:
-        LOGGER.error("FRP threshold must be non-negative and weather distance must be positive.")
+    if (
+        HIGH_FRP_THRESHOLD < 0
+        or MAX_WEATHER_DISTANCE_KM <= 0
+        or CATBOOST_ITERATIONS <= 0
+        or not 1 <= CATBOOST_DEPTH <= 16
+        or CATBOOST_LEARNING_RATE <= 0
+        or CATBOOST_L2_LEAF_REG <= 0
+    ):
+        LOGGER.error(
+            "FRP threshold must be non-negative, weather distance and CatBoost "
+            "parameters must be positive, and CATBOOST_DEPTH must be between 1 and 16."
+        )
         return 2
 
     schema = os.getenv("DB_SCHEMA", "public")
@@ -623,6 +688,9 @@ def main():
         )
         return 1
     except (ValueError, KeyError, TypeError, FileNotFoundError) as error:
+        LOGGER.error("%s", error)
+        return 1
+    except ModuleNotFoundError as error:
         LOGGER.error("%s", error)
         return 1
     finally:
