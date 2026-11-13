@@ -2,7 +2,7 @@
 
 > **GeoFlare**, the NASA Space Apps 2026 app by Team FLARECRAFT, lives in [`geoflare/`](./geoflare). It has two apps: GeoFlare Fires and GeoFlare Air. This GeoData service supplies its severity model, fire archive and assistant. To run both natively or with Docker, and for every API endpoint, see **[GEOFLARE_GUIDE.md](./GEOFLARE_GUIDE.md)**. On Windows, double-clicking `start_all_master.cmd` runs everything.
 
-An end-to-end wildfire analytics platform built on open NASA data. It ingests satellite fire detections (NASA FIRMS: MODIS and VIIRS) together with daily weather (NASA POWER), cleans and stores them in PostgreSQL/PostGIS, trains a machine-learning model that estimates how **severe** a detected fire is, and serves everything through a FastAPI service, an interactive Leaflet map, and a natural-language "ask the data" assistant powered by Claude.
+An end-to-end wildfire analytics platform built on open NASA data. It ingests satellite fire detections (NASA FIRMS: MODIS and VIIRS) together with daily weather (NASA POWER), cleans and stores them in PostgreSQL/PostGIS, trains a machine-learning model that estimates how **severe** a detected fire is, and serves everything through a FastAPI service, an interactive Leaflet map, and a natural-language "ask the data" assistant powered by Groq, also available as **Ask Flick** inside GeoFlare. A Power BI report presents the 2025 fires.
 
 ```text
  NASA FIRMS + NASA POWER ──▶ ETL pipeline ──▶ PostgreSQL/PostGIS ──▶ CatBoost model
@@ -26,6 +26,7 @@ An end-to-end wildfire analytics platform built on open NASA data. It ingests sa
 - [API (FastAPI)](#-api-fastapi)
 - [Frontend (Leaflet map)](#️-frontend-leaflet-map)
 - [GeoFlare (Fires, Air)](#-geoflare-fires-air)
+- [Power BI Dashboard](#-power-bi-dashboard)
 - [Ask the Data (assistant)](#-ask-the-data-assistant)
 - [Docker](#-docker)
 - [Scheduling and Airflow](#️-scheduling-and-airflow)
@@ -38,6 +39,7 @@ An end-to-end wildfire analytics platform built on open NASA data. It ingests sa
 - [Known Limitations](#️-known-limitations)
 - [Roadmap](#️-roadmap)
 - [Business Model (Concept)](#-business-model-concept)
+- [Team](#-team)
 - [License and Data Attribution](#-license-and-data-attribution)
 - [Contribution](#-contribution)
 
@@ -55,7 +57,9 @@ An end-to-end wildfire analytics platform built on open NASA data. It ingests sa
 - **Model benchmarking**: `modeling/compare_models.py` compares Random Forest, XGBoost, and CatBoost with stratified cross-validation.
 - **REST API**: filtered fire queries, GeoJSON for maps, aggregate statistics, single and batch predictions, with PostgreSQL or CSV storage and graceful degradation.
 - **Interactive map**: fires coloured by predicted severity, daily statistics, filters, and a click-to-predict tool.
-- **Ask the data**: a Claude-powered assistant that answers questions using read-only data tools and a documentation search.
+- **Ask the data**: a Groq-powered assistant that answers questions using read-only data tools and a documentation search. In GeoFlare it appears as **Ask Flick**, a chat on every page.
+- **Two pipelines, two stores**: GeoData AI keeps the 2025–2026 detail in PostgreSQL; GeoFlare keeps the 2003–2024 record as Parquet queried with DuckDB. The assistant routes each question by year.
+- **Power BI report**: a three-page dashboard of the 2025 fires (map, overview, and MODIS-versus-VIIRS comparison).
 - **Orchestration**: an Airflow DAG with retries, a dependency-free interval scheduler, and a Docker Compose setup.
 - **Structured logging** for the pipeline, the API, and the scheduler.
 - **CI/CD**: GitHub Actions runs the tests, builds the Docker image, and publishes it to GitHub Container Registry on every push to `main`.
@@ -74,7 +78,9 @@ An end-to-end wildfire analytics platform built on open NASA data. It ingests sa
 | Database | PostgreSQL, PostGIS, SQLAlchemy, Psycopg2 |
 | Machine Learning | CatBoost (production model), XGBoost and scikit-learn (model comparison, BallTree matching), joblib |
 | API | FastAPI, Uvicorn, Pydantic |
-| Assistant | Anthropic Claude API (`anthropic` SDK), TF-IDF retrieval over project docs |
+| Assistant | Groq API (default model `openai/gpt-oss-120b`), TF-IDF retrieval over project docs; Anthropic Claude is an optional alternative |
+| GeoFlare | DuckDB over Parquet, FastAPI, d3, Leaflet, anime.js (vendored in the browser UI) |
+| BI | Power BI |
 | Frontend | Leaflet.js, vanilla JavaScript (served by the API) |
 | Deployment | Docker, Docker Compose (PostGIS image) |
 | Orchestration | Apache Airflow 3 (DAG), `scheduler.py` |
@@ -114,9 +120,28 @@ An end-to-end wildfire analytics platform built on open NASA data. It ingests sa
 
 The pipeline stages are coordinated by `main.py` (or by the Airflow DAG), and the API reads the same database and the same model artifact the pipeline produces.
 
-### GeoFlare on top of GeoData AI
+### Two pipelines, two data stores
 
-GeoFlare is a separate service in `geoflare/` that sits next to the GeoData API. It has its own data pipeline and calls GeoData for every severity score.
+GeoData AI and GeoFlare are separate services with their own ETL. GeoFlare calls GeoData for every severity score.
+
+```text
+ GeoData AI  (port 8000)
+ raw_data/ ─▶ transform ─▶ cleaned_data/ ─▶ PostgreSQL (geodata_db) ─▶ CatBoost model ─▶ API · map · assistant
+
+ GeoFlare    (port 8010)
+ FIRMS yearly archives ─▶ transform ─▶ Parquet (geoflare/data/) ─▶ DuckDB ─▶ Fires and Air apps · Ask Flick
+```
+
+| | GeoData AI | GeoFlare |
+|---|---|---|
+| Input | `raw_data/`: FIRMS CSVs, plus NASA POWER weather downloaded by the pipeline | FIRMS yearly archives (downloaded to `firms_archive/zips`, set with `FIRMS_ARCHIVE_DIR`), and GeoData's `cleaned_data/` fires for the country rankings |
+| Transform | `transformation/transform.py` | `geoflare/pipeline/`: aggregate, weekly, harmonize |
+| Output | Cleaned CSVs in `cleaned_data/` | Parquet files under `geoflare/data/` |
+| Store | PostgreSQL `geodata_db` | DuckDB, reading the Parquet files |
+| Model | CatBoost fire-severity classifier | MODIS → VIIRS harmonization model |
+| Serves | Port 8000: API, classic map, assistant | Port 8010: Fires and Air apps, Ask Flick |
+
+The two stores answer different questions; see [Where an answer comes from](#where-an-answer-comes-from).
 
 ```text
  Browser ──▶ GeoFlare  (port 8010)  ── /geodata/ proxy ──▶  GeoData AI API  (port 8000)
@@ -146,6 +171,11 @@ GeoData-AI-Forest-Fires-Climate-Intelligence-Pipeline
 ├─ .dockerignore            # Keeps secrets (.env), data, logs, virtual environments, and Git history out of the image
 ├─ LICENSE                  # MIT
 ├─ GEOFLARE_GUIDE.md        # Running guide and API reference for GeoFlare (native, Docker, endpoints)
+├─ NASA.pbip                # Power BI project file
+├─ assets/                  # Power BI report screenshots shown in this README
+│  ├─ fire_map.png
+│  ├─ overview.png
+│  └─ satellites.png
 │
 ├─ start_all_master.cmd             # Windows: GeoData pipeline, then run_pipeline_and_servers.cmd
 ├─ run_pipeline_and_servers.cmd     # Windows: GeoFlare pipeline, then geoflare\start.cmd
@@ -191,7 +221,7 @@ GeoData-AI-Forest-Fires-Climate-Intelligence-Pipeline
 │  ├─ version.py            # API version
 │  ├─ routers/              # health, fires, weather, predict, assistant endpoints
 │  ├─ repositories/         # Data access: postgres.py, csv_backend.py, base.py
-│  ├─ assistant/            # service.py (tool loop), tools.py, knowledge.py (docs retrieval)
+│  ├─ assistant/            # service.py (tool loop), groq_client.py (Groq adapter), tools.py, knowledge.py (docs retrieval)
 │  ├─ tools_make_sample.py  # Builds a random sample CSV for the CSV backend
 │  └─ tools_create_indexes.py   # Creates the PostgreSQL indexes the API relies on
 │
@@ -223,14 +253,14 @@ GeoData-AI-Forest-Fires-Climate-Intelligence-Pipeline
 │  │  ├─ air.py             #   Air verdict near industrial heat sites
 │  │  └─ store.py           #   Read access to the harmonized record (DuckDB over Parquet)
 │  ├─ web/                  # Browser UI: index.html, app.js (shell, History, Today), fires.js + fires.css (Fires),
-│  │                        #   air.js (Air), intro.js + flick.js (story and mascot), ui.js, style.css
+│  │                        #   air.js (Air), chat.js (Ask Flick), intro.js + flick.js (story and mascot), ui.js, style.css
 │  └─ data/                 # (not in Git) agg/, weekly/, product/, ref/, live/ built by the pipeline
 │
 └─ tests/                   # pytest suite
    ├─ conftest.py           #   Shared fixtures (tiny fire and weather dataset)
    ├─ test_api.py · test_assistant.py · test_degraded.py
    ├─ test_sql_repository.py · test_load.py · test_weather_download.py · test_orchestration.py
-   └─ test_blank_inputs.py · test_model_upgrades.py · test_risk_score.py
+   └─ test_blank_inputs.py · test_model_upgrades.py · test_risk_score.py · test_groq_client.py
 ```
 
 ---
@@ -243,7 +273,7 @@ GeoData-AI-Forest-Fires-Climate-Intelligence-Pipeline
 - PostgreSQL 14+ with the PostGIS extension (or use the Docker setup, which provides it)
 - The NASA FIRMS archive CSV files (see step 3)
 - Internet access for the NASA POWER API
-- Optional: an Anthropic API key for the assistant
+- Optional: a Groq API key for the assistant
 
 ### 1. Clone and install
 
@@ -646,7 +676,29 @@ The API serves the frontend at `/` (disable with `SERVE_FRONTEND=0`). It needs i
 
 ## 💬 Ask the Data (assistant)
 
-`POST /api/v1/ask` (and the "Ask about the data" panel in the map) answers natural-language questions such as "How did severe fires change month by month?" or "How reliable is the severity model?". It is powered by Claude and works through read-only tools, so numbers come from the data rather than from the model's memory.
+`POST /api/v1/ask` answers natural-language questions such as "How did severe fires change month by month?" or "How reliable is the severity model?". It runs on Groq (model `openai/gpt-oss-120b` by default) and works through read-only tools, so numbers come from the data rather than from the model's memory. You can reach it three ways: the "Ask about the data" panel in the classic map, **Ask Flick** in GeoFlare, and the API directly.
+
+### Ask Flick (GeoFlare)
+
+Flick is GeoFlare's mascot, a little flame with a satellite orbiting its head. The **Ask Flick** button at the bottom-right of every GeoFlare page opens a chat about "fires since 2003, the 2025 records and the AI model".
+
+- Questions go to the GeoData assistant through GeoFlare's same-origin `/geodata/` proxy, so GeoData AI (port 8000) must be running.
+- The chat keeps the last 10 turns, offers three suggested questions (for example "How did Egypt's fires change since 2003?"), and **Start over** clears it.
+- The button is hidden when the assistant is switched off or has no API key.
+
+### Where an answer comes from
+
+The assistant picks its source by the year a question is about:
+
+| Question about | Source | What it can tell you |
+|---|---|---|
+| 2025 and 2026 | PostgreSQL `geodata_db` (GeoData AI) | Individual detections, counts, FRP, the model's severity scores, and weather. `get_data_coverage` reports the exact dates in the table |
+| 2003 to 2024 | DuckDB over GeoFlare's harmonized Parquet record | Yearly fire-detection counts (in VIIRS units) and the fire season and trend derived from them. No severity, no weather, no individual fires |
+| Any other year | None | The assistant says it has no data for that year |
+
+The 2003 to 2024 route needs GeoFlare running on port 8010 (`GEOFLARE_API` changes the address).
+
+### Tools
 
 | Tool | Purpose |
 |---|---|
@@ -654,18 +706,16 @@ The API serves the frontend at `/` (disable with `SERVE_FRONTEND=0`). It needs i
 | `get_fire_statistics` | Counts, FRP statistics, severe share, and breakdowns for any filter |
 | `list_fires` | Individual detections (up to 50), optionally with predicted probability |
 | `predict_fire_severity` | Score a hypothetical or real detection |
-| `get_fire_history` | Yearly fire detections 2003–2025 for a country or the world, fire season, trend and unusual months, read from GeoFlare (`GEOFLARE_API`, default port 8010) |
+| `get_fire_history` | Yearly fire-detection counts for a country or the world from GeoFlare's DuckDB record, with the fire season, trend, and unusual months derived from them |
 | `get_model_info` | Metrics, feature importances, hyperparameters, training extent |
 | `search_project_docs` | TF-IDF search over this README and a built-in data dictionary |
 
-Details:
+### Details
 
 - The tool loop is capped (`ASSISTANT_MAX_ROUNDS`), every lookup is returned to the caller in `tool_calls`, and tool errors are passed back to the model so it can correct its input.
 - Tool inputs are validated and clamped before they reach a query.
-- The system prompt and tool definitions are prompt-cached between requests.
 - When the CSV backend serves a sample, the assistant says so and scales absolute counts accordingly.
-- The assistant needs `ANTHROPIC_API_KEY`, or `GROQ_API_KEY` to run it through Groq instead (model `GROQ_MODEL`, default `openai/gpt-oss-120b`); the rest of the API works without either. The model and effort settings that follow apply to the Anthropic key. Switch it off with `ASSISTANT_ENABLED=0`. Choose the model with `ASSISTANT_MODEL` and the reasoning effort with `ASSISTANT_EFFORT` (`low`, `medium`, `high`, `xhigh`, or `max`).
-- `ASSISTANT_FALLBACKS=1` lets the API re-run a request on Anthropic's recommended fallback model if a safety classifier declines it.
+- Set `GROQ_API_KEY` to turn the assistant on (`.env.example` lists only this key). `GROQ_MODEL` picks the model. The rest of the API works without a key, and `ASSISTANT_ENABLED=0` switches the assistant off. Groq rate limits apply to your key, and the API reports a short "try again" message when one is hit.
 - Because `search_project_docs` indexes this README, keeping it accurate directly improves the assistant's answers about the project.
 
 ---
@@ -680,6 +730,8 @@ GeoFlare is the NASA Space Apps 2026 app by Team FLARECRAFT (challenge: *Harmoni
 | **Fires · Now** | Today's fires from NASA's live feed and a 4-week outlook. Scores today's fires with this repository's CatBoost model (Fire Risk Score), grades the scores against the fire power the satellites measured |
 | **Air** | Joins nearby gas-flare and factory heat sites, live air quality, and wind into a verdict and precautions for any place |
 
+**Ask Flick.** A chat button on every page lets you ask about the fires since 2003, the 2025 records, and the model; see [Ask Flick](#ask-flick-geoflare).
+
 **Why harmonize.** VIIRS (375 m pixels) records about 4× more detections than MODIS (1 km pixels) for the same fires, so a stitched record shows a false jump in 2012. GeoFlare learns, cell by cell and week by week, how many detections VIIRS would have made from what MODIS saw, and reconstructs 2003–2011 in VIIRS units with uncertainty bands.
 
 **Validation** (leave one year out, 14 held-out years): the median monthly error by region (MdAPE, median absolute percentage error) is 33%, against 35% for a single global conversion factor, and the model wins in 12 of the 14 years. The year-level R² on log counts is 0.94, against 0.91. 80% of true values fall inside the 80% uncertainty bands. The gain over a single factor is real but modest; the larger value is the per-place calendar with honest ranges.
@@ -687,6 +739,24 @@ GeoFlare is the NASA Space Apps 2026 app by Team FLARECRAFT (challenge: *Harmoni
 **Running it.** On Windows, `start_all_master.cmd` or `run_pipeline_and_servers.cmd` builds the data and starts both servers (see [Windows one-click scripts](#windows-one-click-scripts)). The generated data (about 9.6 GB of archives and a 320 MB harmonized record) is not in Git.
 
 For the method, the data sources, and the limits, read [geoflare/README.md](./geoflare/README.md). For running natively or in Docker, the full endpoint list for both services, and settings, read [GEOFLARE_GUIDE.md](./GEOFLARE_GUIDE.md).
+
+---
+
+## 📊 Power BI Dashboard
+
+A three-page Power BI report built on the 2025 fire detections, with daily weather from NASA POWER ("every fire NASA's satellites detected in 2025, MODIS and VIIRS, NASA FIRMS"). The screenshots live in [`assets/`](./assets).
+
+**1. Where the fires burned.** A world bubble map of the 2025 fires, where bubble size is the total fire power at that spot. Slicers pick months, satellites, and day or night. Cards show 41M detections, a 28.1% severe share, and the strongest fire at 11K MW.
+
+![Where the fires burned: bubble map of 2025 fires with month, satellite, and day/night slicers](assets/fire_map.png)
+
+**2. The fires of 2025.** Cards for detections (41M), severe detections of 10 MW or more (11M), the severe share (28.1%), average fire power (12.5 MW), and the strongest single fire (11K MW). Charts show fires day by day with the severe ones in red, detections by satellite, severe share by month, day versus night passes, and average humidity (61.9%), rain, and topsoil wetness.
+
+![The fires of 2025: KPI cards, daily detections, satellite split, severe share by month, day or night, and weather cards](assets/overview.png)
+
+**3. Two eyes on the same fires.** MODIS (1 km pixels) against the two VIIRS satellites (375 m pixels): 3.7M detections for MODIS versus 18.5M each for VIIRS, an average fire power of 41.2 MW versus 9.7 MW, and a severe share of 75.6% versus 23.3% and 23.5%. MODIS only catches the bigger fires, which is why the record has to be harmonized before years are compared, as GeoFlare does.
+
+![Two eyes on the same fires: MODIS versus VIIRS detections, average fire power, severe share, and daily detections](assets/satellites.png)
 
 ---
 
@@ -762,7 +832,8 @@ Everything is configured through environment variables (loaded from `.env`). `.e
 | Weather download | `WEATHER_COVERAGE`, `WEATHER_GRID_LAT_STEP`, `WEATHER_GRID_LON_STEP`, `WEATHER_REQUEST_PAUSE`, `WEATHER_START`, `WEATHER_END`, `WEATHER_LATITUDE`, `WEATHER_LONGITUDE` |
 | Modeling | `HIGH_FRP_THRESHOLD`, `MAX_WEATHER_DISTANCE_KM`, `REQUIRE_WEATHER_MATCH`, `TRAINING_SOURCE`, `MAX_TRAINING_ROWS`, `MODEL_ARTIFACT_PATH`, `FORCE_RETRAIN`, plus the CatBoost and calibration settings listed under [Training options](#training-options) |
 | API | `DATA_BACKEND`, `MODEL_PATH`, `DECISION_THRESHOLD`, `CORS_ORIGINS`, `API_MAX_GEOJSON_FEATURES`, `API_CACHE_TTL_SECONDS`, `CSV_MAX_ROWS`, `FIRES_SAMPLE_FILE`, `SERVE_FRONTEND`, `API_LOG_FILE`, `LOG_LEVEL` |
-| Assistant | `ANTHROPIC_API_KEY`, `GROQ_API_KEY`, `GROQ_MODEL`, `ASSISTANT_ENABLED`, `ASSISTANT_MODEL`, `ASSISTANT_EFFORT`, `ASSISTANT_MAX_ROUNDS`, `ASSISTANT_FALLBACKS` |
+| Assistant | `GROQ_API_KEY`, `GROQ_MODEL`, `ASSISTANT_ENABLED`, `ASSISTANT_MAX_ROUNDS`, `GEOFLARE_API` |
+| Assistant (Anthropic, optional) | `ANTHROPIC_API_KEY`, `ASSISTANT_MODEL`, `ASSISTANT_EFFORT`, `ASSISTANT_FALLBACKS` |
 | GeoFlare | `GEODATA_API`, `EMBER_DATA_DIR`, `EMBER_PRODUCT`, `EMBER_PREFETCH`, `FIRMS_ARCHIVE_DIR`, `GEOFLARE_PORT` (defaults in [GEOFLARE_GUIDE.md](./GEOFLARE_GUIDE.md#53-settings)) |
 | Docker and scheduling | `API_PORT`, `DB_PORT_HOST`, `PIPELINE_INTERVAL_HOURS`, `PIPELINE_RUN_ON_START`, `GEODATA_SCHEDULE`, `GEODATA_API_URL`, `AIRFLOW_PORT`, `AIRFLOW_UID` |
 
@@ -789,7 +860,7 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-The suite runs against a tiny fire and weather dataset served through the CSV backend, so it does not need the large data files or an Anthropic key. Database tests use SQLite locally, and the CI test job also starts a temporary PostgreSQL/PostGIS service container so spatial and database queries can be exercised against PostGIS. The Airflow DAG test is skipped automatically when Airflow is not installed (Airflow itself runs in Docker).
+The suite runs against a tiny fire and weather dataset served through the CSV backend, so it does not need the large data files or an LLM API key. Database tests use SQLite locally, and the CI test job also starts a temporary PostgreSQL/PostGIS service container so spatial and database queries can be exercised against PostGIS. The Airflow DAG test is skipped automatically when Airflow is not installed (Airflow itself runs in Docker).
 
 | File | Covers |
 |---|---|
@@ -802,6 +873,7 @@ The suite runs against a tiny fire and weather dataset served through the CSV ba
 | `tests/test_blank_inputs.py` | Blanked-input training copies and the blank patterns |
 | `tests/test_model_upgrades.py` | Derived features (NaN-safe, same code in training and serving), the saved decision threshold, spatial groups, and SHAP in the model info |
 | `tests/test_risk_score.py` | Fire Risk Score calibration and the Low / Medium / High / Extreme levels |
+| `tests/test_groq_client.py` | The Groq adapter: translating tool-call messages to and from chat-completions format, and bad tool arguments |
 | `tests/test_orchestration.py` | Task functions, API refresh behaviour, and the Airflow DAG structure (needs Airflow installed) |
 
 ---
@@ -887,7 +959,8 @@ Or ask the running API: `curl http://localhost:8000/health`.
 | New weather data or dates do not appear in the API | Call `POST /api/v1/refresh` or wait for `API_CACHE_TTL_SECONDS` |
 | A retrained model or new CSV fire data is not served | Restart the API; the model and CSV fires are loaded at startup |
 | Leftover `tmp*.csv` files in `cleaned_data/` | An earlier run was interrupted; they are safe to delete (final files are replaced only after a run completes) |
-| `/api/v1/ask` returns `503` | `ANTHROPIC_API_KEY` and `GROQ_API_KEY` are both missing, or `ASSISTANT_ENABLED=0`; see `/api/v1/ask/status` |
+| `/api/v1/ask` returns `503`, or Ask Flick is missing | `GROQ_API_KEY` is not set (and no Anthropic credentials are configured), or `ASSISTANT_ENABLED=0`; see `/api/v1/ask/status` |
+| The assistant says it has no data, or cannot answer about 2003–2024 | Those years come from GeoFlare; start it on port 8010 (or set `GEOFLARE_API`). Years outside 2003–2026 have no data |
 | Package install fails | Use a supported Python (3.10 or newer; 3.12 matches the Docker images) and a fresh virtual environment |
 | `run_pipeline_and_servers.cmd` stops with "GeoFlare pipeline failed" | One of download, aggregate, build, or rankings failed and the servers were not started. Read the message above it and run the script again; the download resumes |
 | `ModuleNotFoundError: No module named 'duckdb'` | GeoFlare's requirements are not installed in `geoflare\.venv`. Run `geoflare\start.cmd` (it installs them) or `pip install -r requirements.txt` inside `geoflare\` |
@@ -902,7 +975,7 @@ Open items from an independent code review of commit `7315dcc` (6 November 2026)
 
 | Area | Limitation | What to do for now |
 |---|---|---|
-| Security | The API has no authentication or rate limiting. `/api/v1/ask` spends Anthropic credit, `/api/v1/refresh` rebuilds caches, and CORS defaults to `*`. | Run locally or behind an authenticating reverse proxy, set `CORS_ORIGINS`, and do not expose the API port to the internet |
+| Security | The API has no authentication or rate limiting. `/api/v1/ask` spends your Groq quota, `/api/v1/refresh` rebuilds caches, and CORS defaults to `*`. | Run locally or behind an authenticating reverse proxy, set `CORS_ORIGINS`, and do not expose the API port to the internet |
 | Refresh | `POST /api/v1/refresh` rebuilds the weather index and date range only; the model and CSV fire data are loaded at startup | Restart the API after retraining or replacing CSV files |
 | Settings consistency | Training stores its threshold and weather radius in the artifact, but the API takes its own values from the environment and does not compare them | Use the same `HIGH_FRP_THRESHOLD` and `MAX_WEATHER_DISTANCE_KM` for training and serving |
 | Skip logic | Stages check that outputs exist, not that inputs changed; weather loading compares row counts only | Delete the stale output (file, table, or artifact) after changing inputs or settings |
@@ -940,21 +1013,9 @@ Open items from an independent code review of commit `7315dcc` (6 November 2026)
 - [x] Windows automation scripts that set up virtual environments and start the servers
 - [x] Model upgrades: blank-input training, derived features, spatial cross-validation, recall-first threshold, SHAP, and the calibrated Fire Risk Score
 - [x] GeoFlare: harmonized MODIS + VIIRS calendar, live fires with severity scores, and air quality near industry
-
-**Next steps**
-
-- [ ] Power BI dashboard on top of the stored data
-- [ ] Evaluate the model per sensor and region, and against a no-weather baseline
-- [ ] Address the open items listed under [Known Limitations](#️-known-limitations), starting with API authentication
-- [ ] Automated deployment step (for example to a cloud host) after the image is published
-- [ ] Authentication and rate limiting for the API, especially `/api/v1/ask`
-- [ ] Model improvements: multi-day weather trends and a fire-weather index, which need more than one weather lookup per fire at serving time (every weather input is under 1% of SHAP importance today)
-- [ ] Train on a larger share of the data (raise `MAX_TRAINING_ROWS`) and track metrics across retrains
-
-**Future ideas**
-
-- [ ] A fire-occurrence model, which would need labelled no-fire observations
-- [ ] Embedding-based retrieval for the assistant's documentation search
+- [x] Assistant moved to Groq, with Ask Flick as a chat in GeoFlare
+- [x] Year routing for the assistant: 2025–2026 from PostgreSQL, 2003–2024 from DuckDB
+- [x] Power BI dashboard of the 2025 fires
 
 ---
 
@@ -971,7 +1032,7 @@ Open items from an independent code review of commit `7315dcc` (6 November 2026)
 | Docker, Airflow, and CI/CD for repeatable deployment | Multi-tenant isolation, monitoring, and a service-level agreement |
 | CatBoost severity model, benchmarked against Random Forest and XGBoost (cross-validated ROC-AUC about 0.90) | A fire-occurrence or risk model and validation against customer data |
 | GeoFlare apps (Fires, Air) on top of the API, a NASA Space Apps 2026 prototype | Real users, a hosted deployment, and support |
-| Roadmap item: Power BI dashboard | Power BI connectors and report templates |
+| Power BI report on the 2025 fires (three pages) | Published Power BI reports, connectors, and templates for customers |
 
 ### Value proposition
 
@@ -1001,7 +1062,7 @@ The raw satellite and weather data are free. The value is in turning them into s
 ### Cost structure
 
 - Cloud hosting and storage (tens of millions of detections in PostgreSQL/PostGIS, plus compute for training and the API).
-- Claude API usage for the assistant, which costs money per question and should be rate limited and capped.
+- LLM API usage (Groq) for the assistant, which is metered or rate limited per question and should be capped.
 - Engineering and maintenance, including model monitoring and retraining.
 - Support, security, and compliance work.
 
@@ -1032,6 +1093,20 @@ Free tools already show active fires (NASA's own FIRMS map is one), so selling t
 2. Run a pilot with one forestry, agriculture, or civil-protection organization and agree on success metrics (for example precision on severe detections and alert lead time).
 3. Add authentication, rate limiting, and usage metering to the API.
 4. Only then set pricing, based on the value delivered and on what the pilot users say they would pay.
+
+---
+
+## 👥 Team
+
+Built by Team FLARECRAFT.
+
+| Member | Roles |
+|---|---|
+| [BishoyAbdElmeseh](https://github.com/BishoyAbdElmeseh) | Database engineer · Data engineer |
+| [boshkamal1](https://github.com/boshkamal1) (Beshoy Kamal) | QA tester · Business analyst |
+| [georgesamer](https://github.com/georgesamer) (George Essam) | MLOps · AI engineer |
+| [mathew27700](https://github.com/mathew27700) (Mathew) | Full-stack engineer · Forward-deployed engineer (FDE) |
+| [sondossayed118-cpu](https://github.com/sondossayed118-cpu) (Sondos A) | Data analyst · Power BI analyst |
 
 ---
 
