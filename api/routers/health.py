@@ -64,7 +64,7 @@ def model_info(request: Request) -> ModelInfo:
             loaded=False, model_path=str(settings.model_path), estimator=None, n_estimators=None,
             feature_columns=[], weather_features=[], target=None,
             high_frp_threshold_mw=settings.high_frp_threshold_mw,
-            decision_threshold=settings.decision_threshold,
+            decision_threshold=settings.decision_threshold if settings.decision_threshold is not None else 0.5,
         )
     info = predictor.info()
     if info.get("feature_importances"):

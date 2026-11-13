@@ -26,7 +26,7 @@ class Settings:
     model_path: Path = ROOT_DIR / "modeling" / "artifacts" / "high_frp_classifier.joblib"
     high_frp_threshold_mw: float = 10.0
     max_weather_distance_km: float = 100.0
-    decision_threshold: float = 0.5
+    decision_threshold: float | None = None  # None: use the threshold saved in the model artifact (else 0.5)
     default_page_size: int = 500
     max_page_size: int = 5_000
     max_geojson_features: int = 50_000
@@ -59,7 +59,7 @@ def load_settings() -> Settings:
         max_weather_distance_km=float(
             os.getenv("MAX_WEATHER_DISTANCE_KM", defaults.max_weather_distance_km)
         ),
-        decision_threshold=float(os.getenv("DECISION_THRESHOLD", defaults.decision_threshold)),
+        decision_threshold=float(os.environ["DECISION_THRESHOLD"]) if os.getenv("DECISION_THRESHOLD") else defaults.decision_threshold,
         default_page_size=int(os.getenv("API_DEFAULT_PAGE_SIZE", defaults.default_page_size)),
         max_page_size=int(os.getenv("API_MAX_PAGE_SIZE", defaults.max_page_size)),
         max_geojson_features=int(

@@ -26,6 +26,8 @@ def _predict(observations: list[FireObservation], predictor, weather_index, sett
                 high_frp_probability=record["high_frp_probability"],
                 is_high_frp=record["is_high_frp"],
                 predicted_label=record["predicted_label"],
+                risk_score=record.get("risk_score"),
+                risk_level=record.get("risk_level"),
                 decision_threshold=threshold,
                 high_frp_threshold_mw=settings.high_frp_threshold_mw,
                 in_training_extent=predictor.in_training_extent(observation.latitude, observation.longitude, observation.acq_date),

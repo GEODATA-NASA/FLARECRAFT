@@ -16,7 +16,7 @@ GEOJSON_PROPERTIES = [
     "acq_date", "acq_time", "brightness", "bright_t31", "frp", "confidence",
     "scan", "track", "daynight", "type", "satellite", "instrument", "satellite_source",
 ]
-PREDICTION_PROPERTIES = ("high_frp_probability", "is_high_frp", "predicted_label", "weather_matched")
+PREDICTION_PROPERTIES = ("high_frp_probability", "is_high_frp", "predicted_label", "risk_score", "risk_level", "weather_matched")
 
 
 def _require_predictor(predictor):

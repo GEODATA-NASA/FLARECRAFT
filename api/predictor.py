@@ -2,8 +2,12 @@
 
 Feature construction follows ``modeling/train_model.py``: fire attributes from
 FIRMS, ``day_of_year`` from the acquisition date, and same-day nearest weather
-(humidity, precipitation, soil moisture) within the configured radius. Missing
-numeric weather values are handled natively by the saved CatBoost model.
+(humidity, precipitation, soil moisture) within the configured radius.
+
+Missing inputs stay blank (NaN). The model was trained on copies of rows with
+groups of inputs blanked (see ``blank_augment`` in modeling/train_model.py), so a
+request that only gives a place and a date gets an ordinary risk for that place
+and season, not the near-certain "severe" a model trained on complete rows gives.
 """
 
 import logging
@@ -14,6 +18,8 @@ import numpy as np
 import pandas as pd
 
 from api.weather_index import WEATHER_FEATURES, WeatherIndex
+from modeling.risk import apply_risk
+from modeling.features import DERIVED_FEATURES, add_derived_features
 from modeling.train_model import canonical_date
 
 LOGGER = logging.getLogger("geodata.api.predictor")
@@ -28,10 +34,13 @@ PREDICTION_COLUMNS = [
 
 
 class SeverityPredictor:
-    def __init__(self, model_path: Path, high_frp_threshold_mw: float, decision_threshold: float):
+    def __init__(self, model_path: Path, high_frp_threshold_mw: float, decision_threshold: float | None = None):
         self.model_path = Path(model_path)
         self.high_frp_threshold_mw = float(high_frp_threshold_mw)
-        self.decision_threshold = float(decision_threshold)
+        self.threshold_override = None if decision_threshold is None else float(decision_threshold)
+        self.decision_threshold = 0.5 if decision_threshold is None else float(decision_threshold)
+        self.shap_importance: dict | None = None
+        self.risk_scale: dict | None = None
         self.model = None
         self.feature_columns: list[str] = []
         self.weather_features: list[str] = []
@@ -54,6 +63,11 @@ class SeverityPredictor:
         self.feature_importances = artifact.get("feature_importances") or self._importances_from_model()
         self.metrics = artifact.get("metrics")
         self.training_extent = artifact.get("training_extent")
+        self.shap_importance = artifact.get("shap_importance")
+        self.risk_scale = artifact.get("risk_scale")   # None for models trained before the risk score existed
+        # An explicit setting (DECISION_THRESHOLD) wins; otherwise use the recall-first threshold saved with the model.
+        if self.threshold_override is None and artifact.get("decision_threshold") is not None:
+            self.decision_threshold = float(artifact["decision_threshold"])
         LOGGER.info(
             "Loaded model %s with %s features (%s).",
             self.model_path.name, len(self.feature_columns), ", ".join(self.feature_columns),
@@ -111,6 +125,8 @@ class SeverityPredictor:
             "decision_threshold": self.decision_threshold,
             "feature_importances": self.feature_importances if self.loaded else None,
             "metrics": self.metrics if self.loaded else None,
+            "shap_importance": self.shap_importance if self.loaded else None,
+            "risk_levels": ({"cutoffs": self.risk_scale["cutoffs"], "method": self.risk_scale["method"]} if self.loaded and self.risk_scale else None),
             "training_extent": self.training_extent if self.loaded else None,
         }
 
@@ -120,7 +136,10 @@ class SeverityPredictor:
         features = pd.DataFrame(index=fires.index)
         days = canonical_date(fires["acq_date"]) if "acq_date" in fires.columns else pd.Series(pd.NaT, index=fires.index)
 
+        derived = [c for c in self.feature_columns if c in DERIVED_FEATURES]
         for column in self.feature_columns:
+            if column in derived:
+                continue   # computed below, by the same function the trainer used
             if column == "day_of_year":
                 features[column] = days.dt.dayofyear.astype(float)
             elif column in self.weather_features:
@@ -148,6 +167,10 @@ class SeverityPredictor:
             from_station = matched[feature] if feature in matched.columns else pd.Series(np.nan, index=fires.index)
             features[feature] = supplied[feature].where(supplied[feature].notna(), from_station)
 
+        if derived:
+            computed = add_derived_features(features)
+            for column in derived:
+                features[column] = computed[column]
         features["weather_matched"] = matched["weather_matched"].astype(bool)
         features["weather_distance_km"] = matched["weather_distance_km"]
         features["weather_supplied"] = supplied.notna().any(axis=1) if self.weather_features else False
@@ -174,6 +197,10 @@ class SeverityPredictor:
         result["high_frp_probability"] = probabilities.round(4)
         result["is_high_frp"] = probabilities >= threshold
         result["predicted_label"] = np.where(result["is_high_frp"], "high_frp", "normal_frp")
+        if self.risk_scale:
+            _, score, level = apply_risk(self.risk_scale, probabilities)
+            result["risk_score"] = score
+            result["risk_level"] = level
         result["weather_matched"] = features["weather_matched"]
         result["weather_supplied"] = features["weather_supplied"]
         result["weather_distance_km"] = features["weather_distance_km"].round(2)
