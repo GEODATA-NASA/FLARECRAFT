@@ -325,7 +325,10 @@ const App = (() => {
     UI.refreshMaps();
     if (view === "dashboard") await showPane(sub === "now" ? "now" : "history");
     if (view === "fires" && window.Fires) await Fires.show(sub);
-    if (view === "air" && window.Air) await Air.show(sub);
+    if (view === "air" && window.Air) {
+      await Air.show(sub);
+      if (!airStorySeen() && changed && state.navs > 0) playAirStory();   // the first visit from another app gets Flick's Air story
+    }
   }
   async function showPane(pane) {
     state.pane = pane;
@@ -453,6 +456,7 @@ const App = (() => {
     $("print").addEventListener("click", () => { $("expert").open = true; renderAnnual(); renderValidation(); setTimeout(print, 250); });
     $("back").addEventListener("click", () => { if (history.length > 1 && state.navs > 0) history.back(); else go("dashboard"); });
     $("replay").addEventListener("click", () => { Guide.end(false); $("app").hidden = true; Story.open(show); });
+    $("air-story").addEventListener("click", playAirStory);
     $("theme").addEventListener("click", toggleTheme);
     $("expert").addEventListener("toggle", () => { if ($("expert").open) { renderAnnual(); renderValidation(); } });
     $("search").addEventListener("change", (e) => {
@@ -464,6 +468,15 @@ const App = (() => {
     addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(rerenderAll, 200); });
     const [meta] = await Promise.all([api("/api/meta"), api("/api/countries").then((list) => { $("country-list").innerHTML = list.map((c) => `<option value="${c}">`).join(""); })]);
     state.meta = meta;
+  }
+
+  /* GeoFlare Air's own story: what flares put in the air, and whether factory heat and wildfires are related. */
+  const airStorySeen = () => { try { return localStorage.getItem("geoflare-air-story") === "1"; } catch (e) { return false; } };
+  function playAirStory() {
+    try { localStorage.setItem("geoflare-air-story", "1"); } catch (e) {}
+    Guide.end(false);
+    $("app").hidden = true;
+    Story.openAir(() => { $("app").hidden = false; if (state.view !== "air") go("air"); UI.refreshMaps(); scrollTo(0, 0); });
   }
 
   /* Called when the story ends (or straight away for /dashboard, /fires, /air). */

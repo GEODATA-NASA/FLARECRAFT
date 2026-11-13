@@ -2,7 +2,7 @@
 
 **Three apps for our planet's fires and the air around them.** GeoFlare Dashboard: a fire calendar for any place on Earth since 2003, today's fires, and a country leaderboard. GeoFlare Fires: which fires could turn severe, and the archive map. GeoFlare Air: is the air safe where you live, near gas flares and factories, and what to do about it.
 
-NASA Space Apps 2026 · Team FLARECRAFT (Assiut, Egypt): George Essam, Mathew Emad, Sondos Alsayed · Challenge: *Harmonization of MODIS and VIIRS Hot Spots*
+NASA Space Apps 2026 · Team FLARECRAFT (Assiut, Egypt): Beshoy AbdelMaseeh, Beshoy Kamal, George Essam, Mathew Emad, Sondos Alsayed · Challenge: *Harmonization of MODIS and VIIRS Hot Spots*
 
 > **Validation (full 2003-2025 record, leave one year out, 14 held-out years):** the median monthly error by region is 33%, against 35% for a single global conversion factor, and the model wins in 12 of the 14 years. The year-level R² (log) is 0.94, against 0.91 for the single factor. 80% of true values fall inside the 80% uncertainty bands. The gain over one factor is real but modest. The bigger value is the per-place calendar with honest ranges.
 

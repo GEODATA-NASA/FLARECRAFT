@@ -527,3 +527,10 @@ body[data-view="air"] { --accent: #0b7f86; --accent-soft: rgba(11, 127, 134, 0.1
 /* only one Flick on screen: during a tour the in-page Flick cards step aside */
 body.touring .flick-card { display: none !important; }
 .classic-row { display: flex; justify-content: center; margin-top: 10px; }
+
+/* Air story: what a flare breathes out; and the replay button in GeoFlare Air */
+.story-pollutants { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.story-pollutants div { border: 1px solid rgba(100,210,255,.3); background: rgba(100,210,255,.08); border-radius: 16px; padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; }
+.story-pollutants strong { color: #cdeeff; font-size: 16px; }
+.story-pollutants span { color: #a8b7c0; font-size: 13.5px; }
+.air-story-btn { margin-top: 14px; }
