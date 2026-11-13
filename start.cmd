@@ -11,14 +11,18 @@ title GeoFlare - Team FLARECRAFT
 set "BASE=http://127.0.0.1:8010/"
 set "URL=%BASE%%~1?r=%RANDOM%%RANDOM%"
 
-rem 1. The GeoData AI service: severity model, fire archive and assistant (from the original project).
+rem 1. The GeoData AI service: severity model, fire archive and assistant.
+rem    Inside the GeoData repository this folder is geoflare\ and GeoData is the parent folder;
+rem    in a side-by-side setup GeoData is a sibling folder called repo.
+set "GEODATA=%~dp0.."
+if not exist "%GEODATA%\api\main.py" set "GEODATA=%~dp0..\repo"
 powershell -NoProfile -Command "try { Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:8000/health' -TimeoutSec 2 | Out-Null; exit 0 } catch { exit 1 }"
 if errorlevel 1 (
-    if exist "%~dp0..\repo\.venv\Scripts\python.exe" (
+    if exist "%GEODATA%\.venv\Scripts\python.exe" (
         echo Starting the GeoData AI service in a separate window...
-        start "GeoFlare Fires - GeoData AI service" /min /d "%~dp0..\repo" "%~dp0..\repo\.venv\Scripts\python.exe" -m uvicorn api.main:app --host 127.0.0.1 --port 8000
+        start "GeoFlare Fires - GeoData AI service" /min /d "%GEODATA%" "%GEODATA%\.venv\Scripts\python.exe" -m uvicorn api.main:app --host 127.0.0.1 --port 8000
     ) else (
-        echo GeoData project not found next to this folder - GeoFlare Fires will show it as offline.
+        echo GeoData AI service not found or its .venv is missing - GeoFlare Fires will show it as offline.
     )
 )
 
