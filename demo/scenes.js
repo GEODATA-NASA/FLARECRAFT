@@ -597,6 +597,26 @@ SCENES.push({ id: "thanks", name: "Thank you", who: "Beshoy Kamal", dark: true, 
     F.to(230, 830, { mood: "laugh", dur: 900, done: () => { F.bow(); s.later(1200, () => F.say("Questions? Press a number to revisit any scene.")); } });
   } });
 
+// The judges' demo shows the app itself: a picture of each feature, in a window, with Flick explaining it.
+function shot(s, src, title) {
+  const veil = s.add('<div style="left:0;top:0;width:1600px;height:1000px;background:rgba(8,8,10,.82);opacity:0;z-index:4"></div>');
+  tw({ targets: veil, opacity: [0, 1], duration: 450, easing: "linear" });
+  const w = s.add(`<div class="win" style="left:250px;top:150px;width:1060px;height:774px;opacity:0;z-index:5"><div class="bar"><i></i><i></i><i></i><span>${title}</span></div><img src="img/${src}" width="1060" height="736" alt="${title}"></div>`);
+  tw({ targets: w, opacity: [0, 1], scale: [0.96, 1], duration: 650, easing: "easeOutCubic" });
+  return w;
+}
+SCENES.find((x) => x.id === "fix").beats.push((s) => {
+  shot(s, "chat.jpg", "GeoFlare · Ask Flick, on every page");
+  F.to(1440, 860, { s: 1, mood: "happy", dur: 700, done: () => F.say("And if you have a question, ask me. I answer with the real numbers from NASA's data.") });
+});
+SCENES.find((x) => x.id === "model").beats.push((s) => {
+  shot(s, "feat_severe.jpg", "GeoFlare Fires · today's fires, scored by the AI model");
+  F.to(1440, 860, { s: 1, mood: "proud", dur: 700, done: () => F.say("In the app, every fire burning today gets a score. Red means it could turn severe, so crews know where to look first.") });
+});
+SCENES.find((x) => x.id === "air").beats.push((s) => {
+  shot(s, "feat_air.jpg", "GeoFlare Air · a real report for Basra, Iraq");
+  F.to(1440, 860, { s: 1, mood: "happy", dur: 700, done: () => F.say("Type your town. I find the gas flares and factories near you, read today's air and the wind, and tell you what to do, step by step.") });
+});
 // Judges' demo: 7 slides, no presenters.
 {
   const keep = ["title", "problem", "fix", "model", "harmony", "air", "business"];
