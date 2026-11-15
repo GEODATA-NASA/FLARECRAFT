@@ -91,13 +91,13 @@ SCENES.push({ id: "title", name: "GeoFlare", who: "Beshoy Kamal", dark: true, be
     const word = s.add(`<div class="title-word" style="left:92px;top:290px;color:#fff">${"Geo".split("").map((c) => `<span>${c}</span>`).join("")}${"Flare".split("").map((c) => `<span class="f">${c}</span>`).join("")}</div>`);
     tw({ targets: word.querySelectorAll("span"), opacity: [0, 1], translateY: [40, 0], duration: 700, delay: anime.stagger(95, { start: 500 }), easing: "easeOutExpo" });
     const sub = s.add('<div class="p-sub" style="left:100px;top:510px;width:640px;font-size:34px;color:#F5F5F7;opacity:0">The story of our planet\'s fires,<br>and the air around them.</div>');
-    const ch = s.add('<div class="p-sub" style="left:100px;top:640px;width:640px;font-size:19px;opacity:0">NASA Space Apps 2026 · Harmonization of MODIS and VIIRS Hot Spots<br>Team FLARECRAFT · Assiut, Egypt</div>');
+    const ch = s.add('<div class="p-sub" style="left:100px;top:625px;width:680px;font-size:18px;line-height:1.45;opacity:0">NASA Space Apps 2026 · Challenge: Harmonization of MODIS and VIIRS Hot Spots<br>Team FLARECRAFT (Assiut, Egypt): Beshoy AbdelMaseeh, Beshoy Kamal,<br>George Essam, Mathew Emad, Sondos Alsayed<br>Built on NASA FIRMS (MODIS, VIIRS) and NASA POWER data</div>');
     tw({ targets: sub, opacity: 1, translateY: [20, 0], duration: 800, delay: 1500, easing: "easeOutCubic" });
     tw({ targets: ch, opacity: 1, duration: 800, delay: 2100, easing: "linear" });
     FX.burst(800, 500, 240, { speed: 950, life: 1.5, g: 0, r: 3.6 });
     F.place(800, 500, { s: 0.4, mood: "wow" });
     s.later(350, () => F.orbit(1190, 490, 440, 150, { dur: 2500, s: 0.7,
-      done: () => F.to(210, 830, { s: 1, mood: "happy", dur: 900, done: () => F.say("Five minutes, one planet. Let's go!") }) }));
+      done: () => F.to(1180, 860, { s: 1, mood: "happy", dur: 900, done: () => F.say("Five minutes, one planet. Let's go!") }) }));
   } });
 
 /* ================================================================ 02 who we are */

@@ -18,8 +18,15 @@ from pathlib import Path
 
 APP = Path(__file__).resolve().parent            # <release>/app
 ROOT = APP.parent
-PY = Path(sys.executable)
-GEODATA, GEOFLARE, DATA, LOGS = APP / "geodata", APP / "geoflare", APP / "data", APP / "logs"
+# Two layouts: the release folder (app/ with its own python/ and data/), or a repository clone, where this file is
+# release/launch.py and each server runs in its own .venv with the data the pipelines built (paths from .env).
+BUNDLED = (APP / "python").is_dir()
+if BUNDLED:
+    GEODATA, GEOFLARE, DATA, LOGS = APP / "geodata", APP / "geoflare", APP / "data", APP / "logs"
+    PYTHONS = {"geodata": Path(sys.executable), "geoflare": Path(sys.executable)}
+else:
+    GEODATA, GEOFLARE, DATA, LOGS = ROOT, ROOT / "geoflare", None, ROOT / "logs"
+    PYTHONS = {"geodata": ROOT / ".venv" / "Scripts" / "python.exe", "geoflare": ROOT / "geoflare" / ".venv" / "Scripts" / "python.exe"}
 MENU_PORT = 8020
 MENU = f"http://127.0.0.1:{MENU_PORT}/"
 STATE = {"geodata": False, "geoflare": False, "failed": False}
@@ -113,15 +120,24 @@ def main():
             return
 
     LOGS.mkdir(exist_ok=True)
-    key = groq_key()
-    env = {**os.environ,
-           "CLEANED_DATA_DIR": str(DATA / "cleaned"), "DATA_BACKEND": "csv", "CSV_MAX_ROWS": "1000000",
-           "API_LOG_FILE": str(LOGS / "geodata.log"), "ASSISTANT_ENABLED": "1" if key else "0", "GROQ_API_KEY": key,
-           "EMBER_PRODUCT": str(DATA / "product"), "EMBER_DATA_DIR": str(GEOFLARE / "data"),
-           "GEODATA_API": "http://127.0.0.1:8000", "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8"}
+    missing = [str(p) for p in PYTHONS.values() if not p.is_file()]
+    if missing:
+        print("  The Python environments are not set up yet: " + ", ".join(missing))
+        print("  Run run_pipeline_and_servers.cmd once (it builds them and the data), then start GeoFlare.exe again.")
+        input("\n  Press Enter to close.")
+        return
+    env = {**os.environ, "GEODATA_API": "http://127.0.0.1:8000", "PYTHONIOENCODING": "utf-8"}
+    if BUNDLED:
+        key = groq_key()
+        env.update({"CLEANED_DATA_DIR": str(DATA / "cleaned"), "DATA_BACKEND": "csv", "CSV_MAX_ROWS": "1000000",
+                    "API_LOG_FILE": str(LOGS / "geodata.log"), "ASSISTANT_ENABLED": "1" if key else "0", "GROQ_API_KEY": key,
+                    "EMBER_PRODUCT": str(DATA / "product"), "EMBER_DATA_DIR": str(GEOFLARE / "data"), "PYTHONDONTWRITEBYTECODE": "1"})
+    else:   # a clone: the repository's .env decides the data folder, the database and the Groq key
+        key = "from .env"
+        env.setdefault("EMBER_PRODUCT", str(GEOFLARE / "data" / "product"))
     for name, folder, port in (("geodata", GEODATA, 8000), ("geoflare", GEOFLARE, 8010)):
         log = open(LOGS / f"{name}-server.log", "w", encoding="utf-8")
-        servers.append(subprocess.Popen([str(PY), "-m", "uvicorn", "api.main:app", "--host", "127.0.0.1", "--port", str(port),
+        servers.append(subprocess.Popen([str(PYTHONS[name]), "-m", "uvicorn", "api.main:app", "--host", "127.0.0.1", "--port", str(port),
                                          "--log-level", "warning"], cwd=folder, env=env, stdout=log, stderr=subprocess.STDOUT))
     atexit.register(stop_servers)
 

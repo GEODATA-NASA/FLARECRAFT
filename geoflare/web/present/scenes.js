@@ -369,7 +369,7 @@ SCENES.push({ id: "model", name: "The AI model", who: "George Essam", dark: true
       F.to(1280, 860, { dur: 500, mood: right ? "proud" : "think" });
     },
     (s) => {                                                         // how good it is, in two numbers and four bars
-      const m = Data.model || { auc: 0.893, recall: 0.813, levels: { Low: { actually_severe: 0.05 }, Medium: { actually_severe: 0.19 }, High: { actually_severe: 0.35 }, Extreme: { actually_severe: 0.77 } } };
+      const m = Data.model || { auc: 0.891, recall: 0.858, levels: { Low: { actually_severe: 0.05 }, Medium: { actually_severe: 0.19 }, High: { actually_severe: 0.34 }, Extreme: { actually_severe: 0.78 } } };
       const a = s.add('<div class="count" style="left:1040px;top:590px;width:220px;opacity:0"><b class="p-num" style="font-size:64px">0</b><span style="font-size:17px">ROC-AUC on dates it never saw</span></div>');
       const b = s.add('<div class="count" style="left:1280px;top:590px;width:224px;opacity:0"><b class="p-num" style="font-size:64px">0%</b><span style="font-size:17px">of severe fires caught</span></div>');
       tw({ targets: [a, b], opacity: 1, duration: 500, delay: anime.stagger(250), easing: "linear" });

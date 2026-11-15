@@ -27,7 +27,9 @@ Download **GeoFlare v1.0** (the zip on the [Releases page](https://github.com/GE
 
 Nothing is installed: the folder carries its own Python, the packages, the trained models and the data. If Windows shows "Windows protected your PC", click **More info → Run anyway**, or use `Run GeoFlare (backup).cmd`. The presentation is at `http://127.0.0.1:8010/present/` and the classic severity map at `http://127.0.0.1:8000/`. Live fires, air quality and map backgrounds need internet; the history, the archives and the model work offline. Ask Flick needs a free Groq key pasted into `Ask Flick key (optional).txt`. Everything is in `HOW TO RUN.txt` inside the folder.
 
-The folder is built from this repository with `python release/build_release.py --zip` (see [`release/`](./release)). To build everything from the raw NASA data instead, follow [Getting Started](#-getting-started).
+**From a clone:** after the one-time setup in [Getting Started](#-getting-started) (or `start_all_master.cmd`), double-click **`GeoFlare.exe`** at the repository root: the same Flick window, using the repository's environments and data. See [GEOFLARE_GUIDE.md](./GEOFLARE_GUIDE.md#2-native-run-windows).
+
+The release folder is built from this repository with `python release/build_release.py --zip` (see [`release/`](./release)).
 
 ---
 

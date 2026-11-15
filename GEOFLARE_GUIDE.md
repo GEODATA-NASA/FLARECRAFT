@@ -38,9 +38,15 @@ Live fires (NASA FIRMS), air quality, wind and place search (Open-Meteo) are fet
 
 ## 2. Native run (Windows)
 
-Requirements: Python 3.12 or newer (developed on 3.14) and Git.
+### The fastest way: GeoFlare.exe
 
-### One-click scripts (recommended)
+**Judges and anyone who just wants to use it:** download `GeoFlare_v1.0.zip` from the [Releases page](https://github.com/GEODATA-NASA/FLARECRAFT/releases), unzip it, and double-click **`GeoFlare.exe`** (the Flick icon). The folder carries its own Python and data, so nothing is installed. Flick's window loads GeoFlare (about 30 seconds), then asks **What do you want to open?**: GeoFlare, the presentation, or the severity map. **Stop GeoFlare** in that window ends it.
+
+**From a clone of this repository:** the same **`GeoFlare.exe`** sits at the repository root. Once the environments and data exist (run `start_all_master.cmd` or `run_pipeline_and_servers.cmd` once, below), double-click `GeoFlare.exe` every time after: it starts both servers with the repository's `.venv` and `geoflare\.venv`, uses the data folders from `.env`, and opens the same Flick window. It is built from `release/launcher.cs` and runs `release/launch.py`.
+
+Requirements for building from source: Python 3.12 or newer (developed on 3.14) and Git.
+
+### One-click scripts (first-time setup)
 
 Four scripts automate everything below. Each creates its virtual environment (`.venv`) if it is missing and runs `pip install -r requirements.txt` on every start, so the packages GeoFlare needs (including `duckdb`) are always present.
 
