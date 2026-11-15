@@ -6,6 +6,7 @@ import atexit
 import ctypes
 import json
 import os
+import platform
 import socket
 import subprocess
 import sys
@@ -29,7 +30,9 @@ else:
     PYTHONS = {"geodata": ROOT / ".venv" / "Scripts" / "python.exe", "geoflare": ROOT / "geoflare" / ".venv" / "Scripts" / "python.exe"}
 MENU_PORT = 8020
 MENU = f"http://127.0.0.1:{MENU_PORT}/"
-STATE = {"geodata": False, "geoflare": False, "failed": False}
+STATE = {"geodata": False, "geoflare": False, "failed": False, "problems": [], "warnings": []}
+NEEDS = {"geodata": "fastapi, uvicorn, pandas, numpy, sklearn, catboost, sqlalchemy, dotenv, requests",
+         "geoflare": "fastapi, uvicorn, pandas, numpy, scipy, duckdb, pyarrow, requests"}
 servers = []
 stopping = threading.Event()
 
@@ -99,6 +102,56 @@ class Menu(BaseHTTPRequestHandler):
         pass
 
 
+def preflight():
+    """Everything GeoFlare needs, checked before anything starts. Returns (problems, warnings) in plain words."""
+    problems, warnings = [], []
+    here = str(APP).lower()
+    if "\\appdata\\local\\temp\\" in here and ".zip" in here:
+        problems.append("GeoFlare is running from inside the zip. Right-click GeoFlare_v1.0.zip, choose Extract All, and start GeoFlare.exe from the extracted folder.")
+        return problems, warnings
+    if not platform.machine().endswith("64"):
+        problems.append("This computer runs 32-bit Windows; GeoFlare needs 64-bit Windows 10 or 11.")
+    try:
+        LOGS.mkdir(exist_ok=True)
+        (LOGS / "write-test.txt").write_text("ok", encoding="utf-8")
+        (LOGS / "write-test.txt").unlink()
+    except OSError:
+        problems.append(f"GeoFlare cannot write to {APP}. Copy the GeoFlare folder to the Desktop or Documents (not a read-only drive) and start it there.")
+    for name, py in PYTHONS.items():
+        if not py.is_file():
+            problems.append(f"Python for {name} is missing ({py}). " + ("Download and extract the zip again." if BUNDLED else "Run run_pipeline_and_servers.cmd once to set it up."))
+            continue
+        probe = subprocess.run([str(py), "-c", f"import {NEEDS[name]}"], capture_output=True, text=True)
+        if probe.returncode and not BUNDLED:   # a clone: install what is missing (needs internet once)
+            print(f"  Installing missing packages for {name} (one time, needs internet)...", flush=True)
+            req = (GEODATA if name == "geodata" else GEOFLARE) / "requirements.txt"
+            subprocess.run([str(py), "-m", "pip", "install", "-q", "-r", str(req)])
+            probe = subprocess.run([str(py), "-c", f"import {NEEDS[name]}"], capture_output=True, text=True)
+        if probe.returncode:
+            last = (probe.stderr.strip().splitlines() or ["unknown error"])[-1]
+            problems.append(f"A package for {name} does not load ({last}). " + ("Download and extract the zip again; antivirus may have removed a file." if BUNDLED else "Run: pip install -r requirements.txt"))
+    needed = ([DATA / "cleaned" / "fires_sample.csv", DATA / "cleaned" / "cleaned_weather.csv", DATA / "product" / "cellweek.parquet"] if BUNDLED
+              else [GEOFLARE / "data" / "product" / "cellweek.parquet"]) + [GEODATA / "modeling" / "artifacts" / "high_frp_classifier.joblib"]
+    for f in needed:
+        if not f.is_file():
+            problems.append(f"Data file missing: {f}. " + ("Download and extract the zip again." if BUNDLED else "Run run_pipeline_and_servers.cmd to build the data."))
+    for port in (8000, 8010):
+        if busy(port):
+            problems.append(f"Port {port} is used by another program. Close it (or restart the computer), then start GeoFlare again.")
+    try:
+        socket.create_connection(("firms.modaps.eosdis.nasa.gov", 443), timeout=3).close()
+    except OSError:
+        warnings.append("No internet: today's fires, air quality, town search and map backgrounds will not load. The history, the archives, the model and the presentation work offline.")
+    return problems, warnings
+
+
+def last_lines(path, n=6):
+    try:
+        return [l for l in path.read_text(encoding="utf-8", errors="ignore").splitlines() if l.strip()][-n:]
+    except OSError:
+        return []
+
+
 def stop_servers():
     for p in servers:
         if p.poll() is None:
@@ -113,19 +166,27 @@ def main():
         open_window(MENU)
         time.sleep(2)
         return
-    for port in (8000, 8010, MENU_PORT):
-        if busy(port):
-            print(f"  Port {port} is used by another program. Close it (or restart the computer) and try again.")
-            input("\n  Press Enter to close.")
-            return
-
-    LOGS.mkdir(exist_ok=True)
-    missing = [str(p) for p in PYTHONS.values() if not p.is_file()]
-    if missing:
-        print("  The Python environments are not set up yet: " + ", ".join(missing))
-        print("  Run run_pipeline_and_servers.cmd once (it builds them and the data), then start GeoFlare.exe again.")
+    if busy(MENU_PORT):
+        print(f"  Port {MENU_PORT} is used by another program. Close it (or restart the computer) and try again.")
         input("\n  Press Enter to close.")
         return
+    menu = ThreadingHTTPServer(("127.0.0.1", MENU_PORT), Menu)
+    threading.Thread(target=menu.serve_forever, daemon=True).start()
+    open_window(MENU)
+
+    print("  Checking this computer...", flush=True)
+    problems, warnings = preflight()
+    STATE["problems"], STATE["warnings"] = problems, warnings
+    for w in warnings:
+        print("  [!] " + w)
+    if problems:
+        STATE["failed"] = True
+        print("\n  GeoFlare cannot start yet:")
+        for p in problems:
+            print("  [x] " + p)
+        input("\n  Fix the items above, then start GeoFlare again. Press Enter to close.")
+        return
+    print("  [ok] Everything GeoFlare needs is here.")
     env = {**os.environ, "GEODATA_API": "http://127.0.0.1:8000", "PYTHONIOENCODING": "utf-8"}
     if BUNDLED:
         key = groq_key()
@@ -140,11 +201,7 @@ def main():
         servers.append(subprocess.Popen([str(PYTHONS[name]), "-m", "uvicorn", "api.main:app", "--host", "127.0.0.1", "--port", str(port),
                                          "--log-level", "warning"], cwd=folder, env=env, stdout=log, stderr=subprocess.STDOUT))
     atexit.register(stop_servers)
-
-    menu = ThreadingHTTPServer(("127.0.0.1", MENU_PORT), Menu)
-    threading.Thread(target=menu.serve_forever, daemon=True).start()
-    open_window(MENU)
-    print("  Flick's menu window is open. Starting the servers (about 30 seconds)", end="", flush=True)
+    print("  Starting the servers (about 30 seconds)", end="", flush=True)
 
     started = time.time()
     while not (STATE["geodata"] and STATE["geoflare"]):
@@ -152,7 +209,13 @@ def main():
         STATE["geoflare"] = STATE["geoflare"] or answers("http://127.0.0.1:8010/api/meta")
         if any(p.poll() is not None for p in servers) or time.time() - started > 240:
             STATE["failed"] = True
-            print(f"\n\n  GeoFlare could not start. The details are in {LOGS}.")
+            for name in ("geodata", "geoflare"):
+                if not STATE[name]:
+                    tail = last_lines(LOGS / f"{name}-server.log")
+                    STATE["problems"].append(f"The {name} server did not start: " + (tail[-1] if tail else "no message") + f" (full log: {LOGS / (name + '-server.log')})")
+            print(f"\n\n  GeoFlare could not start:")
+            for p in STATE["problems"]:
+                print("  [x] " + p)
             input("\n  Press Enter to close.")
             return
         if stopping.is_set():

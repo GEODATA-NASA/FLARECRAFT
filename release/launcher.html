@@ -32,7 +32,10 @@
   .lc-foot { margin-top: 22px; color: var(--sub); font-size: 13px; }
   .lc-foot button { background: none; border: 1px solid var(--line); color: var(--sub); border-radius: 999px; padding: 6px 14px; cursor: pointer; font: inherit; }
   .lc-foot button:hover { color: var(--text); border-color: var(--sub); }
-  .lc-err { color: #ff6b6b; }
+  .lc-err { color: #c92a2a; }
+  .lc-problems { text-align: left; width: min(620px, 100%); margin: 18px auto 0; padding-left: 20px; color: #ffb4b4; }
+  .lc-problems li { margin: 8px 0; }
+  .lc-warn { color: #ffd38a; font-size: 14px; max-width: 620px; margin: 14px auto 0; }
   @media (max-width: 640px) { .lc-choices.lc-on { grid-template-columns: 1fr; } h1 { font-size: 34px; } }
   @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
 </style></head>
@@ -56,6 +59,7 @@
 <script src="/web/flick.js"></script>
 <script>
   const $ = (id) => document.getElementById(id);
+  const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   $("flick").innerHTML = Flick.svg(140, "happy");
   const lines = ["Hi! I'm Flick. Give me a moment to wake up the satellites…", "Counting 77 million fires… almost there!", "Lining up 23 years of history…"];
   let n = 0, ready = false;
@@ -64,7 +68,13 @@
     try {
       const s = await (await fetch("/status", { cache: "no-store" })).json();
       for (const k of ["geodata", "geoflare"]) $("s-" + k).className = s[k] ? "lc-done" : "lc-busy";
-      if (s.failed) { clearInterval(nudge); $("say").innerHTML = `<span class="lc-err">Something went wrong while starting.</span> The details are in app\\logs.`; return; }
+      if (s.warnings && s.warnings.length && !$("warn")) $("steps").insertAdjacentHTML("afterend", `<p id="warn" class="lc-warn">${s.warnings.map(esc).join("<br>")}</p>`);
+      if (s.failed) {
+        clearInterval(nudge); $("flick").innerHTML = Flick.svg(140, "worried");
+        $("say").innerHTML = `<span class="lc-err">I can't start GeoFlare yet. Here's what to fix:</span>`;
+        $("steps").outerHTML = `<ul class="lc-problems">${(s.problems.length ? s.problems : ["Something went wrong while starting. The details are in the logs folder."]).map((p) => `<li>${esc(p)}</li>`).join("")}</ul>`;
+        return;
+      }
       if (s.geodata && s.geoflare) return done();
     } catch (e) { /* the launcher is starting */ }
     setTimeout(poll, 1000);
