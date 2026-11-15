@@ -129,7 +129,7 @@ An end-to-end wildfire analytics platform built on open NASA data. It ingests sa
 - **REST API**: filtered fire queries, GeoJSON for maps, aggregate statistics, single and batch predictions, with PostgreSQL or CSV storage and graceful degradation.
 - **Interactive map**: fires coloured by predicted severity, daily statistics, filters, and a click-to-predict tool.
 - **Ask the data**: a Groq-powered assistant that answers questions using read-only data tools and a documentation search. In GeoFlare it appears as **Ask Flick**, a chat on every page.
-- **Two pipelines, two stores**: GeoData AI keeps the 2025–2026 detail in PostgreSQL; GeoFlare keeps the 2003–2024 record as Parquet queried with DuckDB. The assistant routes each question by year.
+- **Two pipelines, two stores**: GeoData AI keeps the 2025–2026 detail in PostgreSQL; GeoFlare keeps the 2003–2026 harmonized record as Parquet queried with DuckDB. The assistant routes each question by year.
 - **Two yearly archives**: every detection of 2026 (1 January to 13 November, the default everywhere) and of 2025 (the full year, one click away). The severity model is trained on both.
 - **Power BI report**: a three-page dashboard of the 2025 fires (map, overview, and MODIS-versus-VIIRS comparison).
 - **Orchestration**: an Airflow DAG with retries, a dependency-free interval scheduler, and a Docker Compose setup.
@@ -231,7 +231,8 @@ GeoFlare still opens when GeoData is not running, but the severity scores and th
 ## 📂 Project Structure
 
 ```text
-GeoData-AI-Forest-Fires-Climate-Intelligence-Pipeline
+FLARECRAFT
+├─ GeoFlare.exe             # Double-click launcher (Flick's window); runs the release folder or this clone
 ├─ main.py                  # GeoData pipeline orchestrator: weather → transform → load → train
 ├─ config.py                # Loads .env; DB settings, data directories, pipeline logging
 ├─ scheduler.py             # Dependency-free interval scheduler that reruns main.py
@@ -243,11 +244,15 @@ GeoData-AI-Forest-Fires-Climate-Intelligence-Pipeline
 ├─ .dockerignore            # Keeps secrets (.env), data, logs, virtual environments, and Git history out of the image
 ├─ LICENSE                  # MIT
 ├─ GEOFLARE_GUIDE.md        # Running guide and API reference for GeoFlare (native, Docker, endpoints)
-├─ NASA.pbip                # Power BI project file
-├─ assets/                  # Power BI report screenshots shown in this README
+├─ assets/                  # README images: Power BI screenshots, the demo and launcher GIFs, Flick
 │  ├─ fire_map.png
 │  ├─ overview.png
-│  └─ satellites.png
+│  ├─ satellites.png
+│  ├─ geoflare_demo.gif
+│  ├─ geoflare_launcher.gif
+│  └─ flick.png
+├─ demo/                    # The 7-slide judges' demo (static; published on GitHub Pages)
+├─ release/                 # Builds the ready-to-run release zip: launcher, Flick's menu, build script
 │
 ├─ start_all_master.cmd             # Windows: GeoData pipeline, then run_pipeline_and_servers.cmd
 ├─ run_pipeline_and_servers.cmd     # Windows: GeoFlare pipeline, then geoflare\start.cmd
@@ -1101,7 +1106,7 @@ Open items from an independent code review of commit `7315dcc` (6 November 2026)
 - [x] Model upgrades: blank-input training, derived features, spatial cross-validation, recall-first threshold, SHAP, and the calibrated Fire Risk Score
 - [x] GeoFlare: harmonized MODIS + VIIRS calendar, live fires with severity scores, and air quality near industry
 - [x] Assistant moved to Groq, with Ask Flick as a chat in GeoFlare
-- [x] Year routing for the assistant: 2025–2026 from PostgreSQL, 2003–2024 from DuckDB
+- [x] Year routing for the assistant: 2025–2026 detections from PostgreSQL, the 2003–2026 record from DuckDB
 - [x] Power BI dashboard of the 2025 fires
 
 ---
