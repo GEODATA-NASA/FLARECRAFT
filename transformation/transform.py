@@ -15,7 +15,7 @@ from utils.quality_checks import validate_fire_data
 FIRE_CHUNK_SIZE = 100_000
 
 
-# تعريف المخطط الموحد (Canonical Schema) لأعمدة الحرائق لضمان الترتيب والثبات
+# The canonical schema of the fire columns, so every file has the same columns in the same order
 # The FIRMS archive names (MODIS and VIIRS downloads both use brightness / bright_t31), the same layout as
 # the cleaned 2025 file, the tests, the API and the model.
 CANONICAL_FIRE_COLUMNS = [
@@ -65,13 +65,13 @@ def _infer_type(df, static_cells):
     return pd.Series(static_cells.reindex(keys).fillna(0).astype(int).to_numpy(), index=df.index).astype("Int64")
 
 def _ensure_canonical_schema(df):
-    """إعادة ترتيب الأعمدة وضمان وجود المخطط الموحد (Canonical Schema)"""
+    """Reorder the columns and make sure every column of the canonical schema exists."""
     df = df.copy()
-    # التأكد من وجود الأعمدة الأساسية، وإضافة الناقصة منها بقيم فارغة لتفادي انهيار الدمج
+    # Add any missing canonical column as blanks, so merging the chunks never fails
     for col in CANONICAL_FIRE_COLUMNS:
         if col not in df.columns:
             df[col] = None
-    # الاحتفاظ بالترتيب الموحد للأعمدة وأي أعمدة إضافية أخرى إن وجدت
+    # Keep the canonical order, then any extra columns
     other_cols = [c for c in df.columns if c not in CANONICAL_FIRE_COLUMNS]
     return df[CANONICAL_FIRE_COLUMNS + other_cols]
 
@@ -170,7 +170,7 @@ def normalize_fire_dataframe(df, source_name):
         if column in df.columns:
             df[column] = pd.to_numeric(df[column], errors="coerce").astype("Int64")
 
-    # تطبيق المخطط الموحد للأعمدة هنا أيضاً
+    # Apply the canonical schema here as well
     df = _ensure_canonical_schema(df)
     return df
 
@@ -204,7 +204,7 @@ def _clean_year(year, sources, output_path, collect_data):
     cleaned_frames = []
     static_cells = None
     
-    # تطبيق الحفظ الذري (Atomic Replace) لملف الحرائق عبر ملف مؤقت
+    # Atomic replace: write the fire file to a temporary file first
     temp_output_path = output_path + ".tmp"
 
     try:
@@ -241,7 +241,7 @@ def _clean_year(year, sources, output_path, collect_data):
                 print(f"{os.path.basename(file_path)} ({source_name}) cleaned successfully.")
 
         if output_written:
-            # استبدال ذري للملف النهائي دفعة واحدة بعد التأكد من نجاح الكتابة بالكامل
+            # Replace the final file in one step, only after the whole write succeeded
             os.replace(temp_output_path, output_path)
             print(f"Cleaned fire data saved atomically to: {output_path}")
             _flag_path(output_path).touch()

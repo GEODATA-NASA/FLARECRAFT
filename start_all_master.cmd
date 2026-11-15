@@ -2,7 +2,7 @@
 setlocal
 cd /d "%~dp0"
 
-:: تفعيل الـ venv وتثبيت المكتبات تلقائياً
+:: Set up the venv and install the libraries automatically
 if not exist ".venv" (
     python -m venv .venv
 )

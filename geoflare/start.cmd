@@ -3,7 +3,7 @@ rem GeoFlare - one-click start. Starts the GeoData AI service (port 8000) and Ge
 setlocal
 cd /d "%~dp0"
 
-:: --- التعديل المضاف هنا: التأكد من تفعيل الـ venv وتثبيت المتطلبات تلقائياً ---
+:: --- Added: make sure the venv exists and the requirements are installed automatically ---
 echo Checking and installing requirements for GeoFlare...
 if not exist ".venv" (
     python -m venv .venv

@@ -21,7 +21,7 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
     
-    # --- الإضافة الجوهرية هنا: تشغيل قاعدة بيانات PostGIS مؤقتة للاختبارات ---
+    # --- The key addition: a temporary PostGIS database for the tests ---
     services:
       postgres:
         image: postgis/postgis:15-3.3
@@ -53,7 +53,7 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements-dev.txt
 
-      # --- تمرير متغيرات الاتصال بالقاعدة الموقتة لكي تعمل اختبارات الـ SQL والـ Pytest بنجاح ---
+      # --- Connection settings for the temporary database, so the SQL and pytest tests can run ---
       - name: Run tests
         env:
           DB_USER: postgres

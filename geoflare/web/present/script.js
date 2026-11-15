@@ -1,3 +1,5 @@
+/* Presenters' speaker notes for the team's live pitch, in Egyptian Arabic (shown only in the presenter's notes window, key N).
+   Nothing here is on the slides; the stage and the judges' demo (demo/) are in English. */
 /* What each speaker says, scene by scene and press by press (Egyptian Arabic with English terms).
    lines[0] is said when the scene opens; lines[k] after the k-th press. Shown in the script window (press N on the stage). */
 "use strict";

@@ -15,7 +15,7 @@ def validate_fire_data(
             raise ValueError("Critical Error: Provided dataframe is empty!")
         return df
 
-    # 1. التأكد من أن الإحداثيات تقع ضمن النطاقات الجغرافية الصحيحة
+    # 1. Coordinates must be inside the valid latitude and longitude ranges
     if "latitude" in df.columns and "longitude" in df.columns:
         valid_coords = (
             df["latitude"].between(-90, 90, inclusive="both") & 
@@ -23,7 +23,7 @@ def validate_fire_data(
         )
         df = df[valid_coords]
 
-    # 2. فحص قيم السطوع والـ FRP (مع دعم مسميات MODIS و VIIRS المختلفة مثل bright_ti4)
+    # 2. Brightness and FRP checks (MODIS and VIIRS column names, such as bright_ti4)
     brightness_cols = [c for c in ["brightness", "bright_ti4", "bright_ti5"] if c in df.columns]
     for col in brightness_cols:
         df = df[df[col].isna() | (df[col] > 0)]
@@ -31,7 +31,7 @@ def validate_fire_data(
     if "frp" in df.columns:
         df = df[df["frp"].isna() | (df["frp"] >= 0)]
 
-    # 3. إزالة الصفوف المكررة تماماً
+    # 3. Drop fully duplicated rows
     df = df.drop_duplicates()
 
     final_count = len(df)
