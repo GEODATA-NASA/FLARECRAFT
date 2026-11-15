@@ -109,6 +109,7 @@ const Talk = (() => {
   function say(text, mood = "happy", with_ = voice) {
     if (playing) { playing.pause(); playing = null; }
     if (clips[text]) { playing = clips[text]; playing.currentTime = 0; playing.play().catch(() => {}); return true; }
+    if (SNAP) return false;   // the demo only ever uses Flick's recorded voice; never the browser's own voices
     if (!synth || !with_) return false;
     synth.cancel();
     const u = new SpeechSynthesisUtterance(text.replace(/×/g, " times").replace(/·/g, ","));
