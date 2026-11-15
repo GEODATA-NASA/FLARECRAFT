@@ -16,7 +16,7 @@ An end-to-end wildfire analytics platform built on open NASA data. It ingests sa
 
 ## ▶️ Run it (judges, start here)
 
-**Demo (7 slides, guided by Flick, with his voice):** https://raw.githack.com/GEODATA-NASA/FLARECRAFT/main/demo/index.html (the same files are in [`demo/`](./demo); open `demo/index.html` in any browser, no server needed).
+**Demo (7 slides, guided by Flick, with his voice):** https://geodata-nasa.github.io/FLARECRAFT/demo/ (the same files are in [`demo/`](./demo); open `demo/index.html` in any browser, no server needed).
 
 Download **GeoFlare v1.0** (the zip on the [Releases page](https://github.com/GEODATA-NASA/FLARECRAFT/releases), or the folder on the flash drive) and on Windows 10 or 11:
 
