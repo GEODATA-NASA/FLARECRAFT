@@ -1,6 +1,6 @@
 # GeoFlare
 
-**Two apps for our planet's fires and the air around them.** GeoFlare Fires has two halves. Past: a fire calendar for any place on Earth since 2003, a country leaderboard, and the 2025 archive map. Now: today's fires, which of them could turn severe, and the next 4 weeks. GeoFlare Air: is the air safe where you live, near gas flares and factories, and what to do about it.
+**Two apps for our planet's fires and the air around them.** GeoFlare Fires has two halves. Past: a fire calendar for any place on Earth since 2003, a country leaderboard, and the archive map of every fire in 2026 (the default) and 2025. Now: today's fires, which of them could turn severe, and the next 4 weeks. GeoFlare Air: is the air safe where you live, near gas flares and factories, and what to do about it.
 
 NASA Space Apps 2026 · Team FLARECRAFT (Assiut, Egypt): Beshoy AbdelMaseeh, Beshoy Kamal, George Essam, Mathew Emad, Sondos Alsayed · Challenge: *Harmonization of MODIS and VIIRS Hot Spots*
 
@@ -36,7 +36,7 @@ Stitching the two records together makes burning appear to jump several-fold in 
 
    **GeoFlare Fires · Now · Today.** Live fires from NASA's public FIRMS feed (VIIRS, last 24 hours or 7 days). It shows one satellite at a time so no fire is counted twice: NOAA-20 first, then NOAA-21 (the Suomi NPP feed was empty when we checked in November 2026). Nominal and high confidence only by default, as in the archive, with switches for satellite, confidence, day or night and minimum fire power. The feed has no source type, so factories and gas flares are recognised from the archive.
 
-   **GeoFlare Fires · severity, next 4 weeks and the 2025 archive.** The [GeoData AI](https://github.com/GEODATA-NASA/GeoData-AI-Forest-Fires-Climate-Intelligence-Pipeline) CatBoost model (ROC-AUC 0.893 on its chronological hold-out, 0.895 ± 0.005 in spatial cross-validation) scores today's fires, and the app grades it against the fire power the satellites measured. A 4-week outlook combines usual activity from the calendar with the model's severity chance. It is a planning guide, not a forecast of individual fires. "Explore the archive" is the GeoData map rebuilt inside GeoFlare: filters, a day-by-day chart, scoring any spot on the map (blank inputs allowed), and the data assistant. Scores show as a calibrated Fire Risk Score (0-100, Low/Medium/High/Extreme) from the GeoData model. "Open the classic map view" opens the original GeoData map on port 8000, with a button back to GeoFlare Fires.
+   **GeoFlare Fires · severity, next 4 weeks and the archive (2026 by default, 2025 one click away).** The [GeoData AI](https://github.com/GEODATA-NASA/GeoData-AI-Forest-Fires-Climate-Intelligence-Pipeline) CatBoost model (trained on 2025 and 2026; ROC-AUC 0.891 on its chronological hold-out, 29 June – 13 November 2026, and 0.892 ± 0.004 in spatial cross-validation) scores today's fires, and the app grades it against the fire power the satellites measured. A 4-week outlook combines usual activity from the calendar with the model's severity chance. It is a planning guide, not a forecast of individual fires. "Explore the archive" is the GeoData map rebuilt inside GeoFlare: filters, a day-by-day chart, scoring any spot on the map (blank inputs allowed), and the data assistant. Scores show as a calibrated Fire Risk Score (0-100, Low/Medium/High/Extreme) from the GeoData model. "Open the classic map view" opens the original GeoData map on port 8000, with a button back to GeoFlare Fires.
 
    **GeoFlare Air.** Type your town or share your location. GeoFlare joins three sources at that point:
    - industrial heat sites within 100 km, from the archive, with distance, direction, how many weeks each glowed, the trend since 2012, and whether each glowed in the last 24 hours;
@@ -44,7 +44,7 @@ Stitching the two records together makes burning appear to jump several-fold in 
    - the wind, which tells you whether the brightest site within 50 km is upwind of you right now.
 
    It gives a verdict, the good and the bad facts behind it, and animated step-by-step precautions for that level of air. The world map of industrial heat sits below; tap any site to check the air there. Air values are CAMS model estimates (10-45 km grid), not a sensor at your door.
-4. **An opening story**: a year of fire, the 2012 mystery, the sharper satellite, the fix, today's fires and which could turn severe, the flares that never move, and the air people breathe next to them. Flick narrates and points at what he is talking about; Next steps through his lines and the last one opens the apps.
+4. **An opening story**: a year of fire (2026 so far, from the GeoData 2026 archive: NOAA-20 vegetation fires week by week; the 2003–2025 record itself takes whole years only, and Suomi NPP has no 2026 data), the 2012 mystery, the sharper satellite, the fix, today's fires and which could turn severe, the flares that never move, and the air people breathe next to them. Flick narrates and points at what he is talking about; Next steps through his lines and the last one opens the apps.
 
 ## Method
 
@@ -58,6 +58,7 @@ Stitching the two records together makes burning appear to jump several-fold in 
 | Validation | **Leave one year out**: for each overlap year, train on all the other years, rebuild that year from MODIS alone, and compare with what VIIRS actually measured. Scored on 5°×5° region-weeks, region-months and region-years, against a **single global conversion factor** as baseline. |
 | Leaderboard | `python -m pipeline.rankings`: VIIRS S-NPP vegetation fires with FRP ≥ 10 MW in 2025 (GeoData cleaned file) and industrial hot pixels in 2025, per 1,000 km² of land (GeoNames areas). Countries under 10,000 km² or 100,000 people are listed but not ranked. |
 | Air verdict | The higher of the US AQI band and an industry level (closest site within 10 km, or within 30 km with the wind blowing from the brightest site toward you). Precautions follow US EPA AirNow advice for each AQI band. |
+| Running year | `python -m pipeline.extend`: 2026 from GeoData's cleaned 2026 file (archive months plus labelled near-real-time months). VIIRS = NOAA-20 × its 2019–2025 ratio to Suomi NPP (0.996 fires, 0.985 FRP, 0.987 industry); the MODIS reconstruction comes from the published final model. Complete weeks only (to 11 Nov 2026); climatology, trends and the jump use complete years. |
 | Uncertainty | Empirical quantiles of actual ÷ predicted on the held-out years, by magnitude and time scale. The app reports how often the truth fell inside the 80% band. Observed weeks are bracketed by the two VIIRS instruments (S-NPP and NOAA-20). |
 
 Known limits, stated plainly:
@@ -103,6 +104,7 @@ python -m pipeline.download          # ~9.6 GB FIRMS yearly archives (resumable)
 python -m pipeline.aggregate         # daily 0.25° aggregates (data/agg)
 python -m pipeline.build             # leave-one-year-out validation, final model, products (data/product)
 python -m pipeline.rankings          # country leaderboard (needs the GeoData cleaned fire CSV and data/ref/countryInfo.txt from GeoNames)
+python -m pipeline.extend            # adds the running year (2026 so far) from GeoData's cleaned_master_fires_2026.csv; no retraining
 .venv/Scripts/python -m uvicorn api.main:app --port 8010  # app + API at http://127.0.0.1:8010
 ```
 

@@ -40,11 +40,12 @@ def download_weather() -> dict:
 
 
 def transform_fires() -> dict:
-    from config import CLEANED_DATA_DIR
+    from config import CLEANED_DATA_DIR, CLEANED_FIRE_FILES
     from transformation.transform import transform_fire_data
 
     transform_fire_data(collect_data=False)
-    return _file_summary(Path(CLEANED_DATA_DIR) / "cleaned_master_fires.csv")
+    files = {year: Path(CLEANED_DATA_DIR) / Path(path).name for year, path in CLEANED_FIRE_FILES.items()}
+    return {str(year): _file_summary(path) for year, path in files.items() if path.is_file()}
 
 
 def transform_weather() -> dict:
@@ -57,12 +58,11 @@ def transform_weather() -> dict:
 
 def check_cleaned_outputs() -> dict:
     """Fail fast before touching the database if a transform produced nothing."""
-    from config import CLEANED_DATA_DIR
+    from config import CLEANED_DATA_DIR, CLEANED_FIRE_FILES
 
-    files = {
-        "fires": Path(CLEANED_DATA_DIR) / "cleaned_master_fires.csv",
-        "weather": Path(CLEANED_DATA_DIR) / "cleaned_weather.csv",
-    }
+    yearly = {year: Path(CLEANED_DATA_DIR) / Path(path).name for year, path in CLEANED_FIRE_FILES.items()}
+    present = {("fires" if year == 2025 else f"fires_{year}"): path for year, path in yearly.items() if path.is_file()}
+    files = {**(present or {"fires": yearly[2025]}), "weather": Path(CLEANED_DATA_DIR) / "cleaned_weather.csv"}
     problems = [f"{name}: {path}" for name, path in files.items() if not path.is_file() or path.stat().st_size == 0]
     if problems:
         raise FileNotFoundError("Cleaned outputs are missing or empty: " + ", ".join(problems))

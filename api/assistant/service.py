@@ -29,7 +29,7 @@ Use the tools for every number you report. Do not estimate counts, shares or mod
 
 Each row is one detection, not one fire: a single large fire produces many detections. Keep that distinction when you describe counts.
 
-The detailed detection table and the model cover one year (get_data_coverage gives the dates). For other years, or for how fires changed over time, use get_fire_history: it returns yearly totals for 2003-2025 by country or for the world, not individual fires, and it has no severity scores.
+The detailed detection table holds two yearly archives, 2025 and 2026; 2026 runs up to the latest download and is the default. get_data_coverage lists each archive's dates. When a question names no year, answer for 2026 and say that it is 2026 so far; use 2025 when it is asked for or to compare like with like (the same months of both years). The model was trained on both years. For earlier years, or for how fires changed over the long run, use get_fire_history: it returns yearly totals for 2003-2026 (2026 so far) by country or for the world, not individual fires, and it has no severity scores.
 
 If the question cannot be answered from these tools, say what is missing instead of guessing. Answer in a few short paragraphs or a short list. Never use a table: the chat window is narrow and shows only text and lists. Lead with the answer."""
 

@@ -57,7 +57,7 @@ def fire_filters(
     ] = None,
     source: Annotated[
         list[str] | None,
-        Query(description="Satellite source(s): modis, viirs_j1, viirs_suomi (repeatable)"),
+        Query(description="Satellite source(s): modis, viirs_j1, viirs_j2, viirs_suomi (repeatable)"),
     ] = None,
     min_confidence: Annotated[int | None, Query(ge=0, le=100)] = None,
     min_frp: Annotated[float | None, Query(ge=0, description="Minimum fire radiative power (MW)")] = None,

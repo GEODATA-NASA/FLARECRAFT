@@ -14,8 +14,26 @@ An end-to-end wildfire analytics platform built on open NASA data. It ingests sa
 
 ---
 
+## ▶️ Run it (judges, start here)
+
+**Demo (7 slides, guided by Flick, with his voice):** https://raw.githack.com/GEODATA-NASA/FLARECRAFT/main/demo/index.html (the same files are in [`demo/`](./demo); open `demo/index.html` in any browser, no server needed).
+
+Download **GeoFlare v1.0** (the zip on the [Releases page](https://github.com/GEODATA-NASA/FLARECRAFT/releases), or the folder on the flash drive) and on Windows 10 or 11:
+
+1. Double-click **`GeoFlare.exe`** (the Flick icon).
+2. Flick's window opens and loads GeoFlare (about 30 seconds).
+3. Flick asks **What do you want to open?**: GeoFlare (the story, Fires and Air), the presentation, or the severity map.
+4. Press **Stop GeoFlare** in Flick's window to stop.
+
+Nothing is installed: the folder carries its own Python, the packages, the trained models and the data. If Windows shows "Windows protected your PC", click **More info → Run anyway**, or use `Run GeoFlare (backup).cmd`. The presentation is at `http://127.0.0.1:8010/present/` and the classic severity map at `http://127.0.0.1:8000/`. Live fires, air quality and map backgrounds need internet; the history, the archives and the model work offline. Ask Flick needs a free Groq key pasted into `Ask Flick key (optional).txt`. Everything is in `HOW TO RUN.txt` inside the folder.
+
+The folder is built from this repository with `python release/build_release.py --zip` (see [`release/`](./release)). To build everything from the raw NASA data instead, follow [Getting Started](#-getting-started).
+
+---
+
 ## 📑 Table of Contents
 
+- [Run it (judges, start here)](#️-run-it-judges-start-here)
 - [Features](#-features)
 - [Technology Stack](#️-technology-stack)
 - [Architecture](#-architecture)
@@ -59,6 +77,7 @@ An end-to-end wildfire analytics platform built on open NASA data. It ingests sa
 - **Interactive map**: fires coloured by predicted severity, daily statistics, filters, and a click-to-predict tool.
 - **Ask the data**: a Groq-powered assistant that answers questions using read-only data tools and a documentation search. In GeoFlare it appears as **Ask Flick**, a chat on every page.
 - **Two pipelines, two stores**: GeoData AI keeps the 2025–2026 detail in PostgreSQL; GeoFlare keeps the 2003–2024 record as Parquet queried with DuckDB. The assistant routes each question by year.
+- **Two yearly archives**: every detection of 2026 (1 January to 13 November, the default everywhere) and of 2025 (the full year, one click away). The severity model is trained on both.
 - **Power BI report**: a three-page dashboard of the 2025 fires (map, overview, and MODIS-versus-VIIRS comparison).
 - **Orchestration**: an Airflow DAG with retries, a dependency-free interval scheduler, and a Docker Compose setup.
 - **Structured logging** for the pipeline, the API, and the scheduler.
@@ -297,15 +316,18 @@ CREATE EXTENSION IF NOT EXISTS postgis;
 
 ### 3. Add the FIRMS archives
 
-Download the MODIS and VIIRS archive CSVs from [NASA FIRMS](https://firms.modaps.eosdis.nasa.gov/) and place them in `raw_data/` using these file names (they are defined in `config.py`):
+Download the MODIS and VIIRS archive CSVs from [NASA FIRMS](https://firms.modaps.eosdis.nasa.gov/) and place them in `raw_data/` using these file names (they are defined in `FIRE_ARCHIVES` in `config.py`). Each year is cleaned into its own file; a year whose files are all missing is skipped.
 
-| Satellite source | Expected file |
-|---|---|
-| `modis` | `raw_data/fire_archive_M-C61_820251.csv` |
-| `viirs_j1` (NOAA-20) | `raw_data/fire_archive_J1V-C2_820252.csv` |
-| `viirs_suomi` (Suomi NPP) | `raw_data/fire_archive_SV-C2_820253.csv` |
+| Year | Satellite source | Expected files | Cleaned into |
+|---|---|---|---|
+| 2025 | `modis` | `fire_archive_M-C61_820251.csv` | `cleaned_master_fires.csv` |
+| 2025 | `viirs_j1` (NOAA-20) | `fire_archive_J1V-C2_820252.csv` | |
+| 2025 | `viirs_suomi` (Suomi NPP) | `fire_archive_SV-C2_820253.csv` | |
+| 2026 | `modis` | `fire_archive_M-C61_844399.csv` (to 31 Aug), then `fire_nrt_M-C61_844399.csv` | `cleaned_master_fires_2026.csv` |
+| 2026 | `viirs_j1` (NOAA-20) | `fire_archive_J1V-C2_844400.csv` (to 31 Jul), then `fire_nrt_J1V-C2_844400.csv` | |
+| 2026 | `viirs_j2` (NOAA-21) | `fire_archive_J2V-C2_844401.csv` (to 31 Jul), then `fire_nrt_J2V-C2_844401.csv` | |
 
-The folder can be moved with `RAW_DATA_DIR` and `CLEANED_DATA_DIR`. Weather is downloaded automatically; you do not provide it.
+For 2026, FIRMS provides the science-quality ("archive") files up to the end of July (VIIRS) or August (MODIS) and near-real-time ("nrt") files after that; the two do not overlap. Suomi NPP has no 2026 data, and NOAA-21 takes its place. The folder can be moved with `RAW_DATA_DIR` and `CLEANED_DATA_DIR`. Weather is downloaded automatically; you do not provide it.
 
 ### 4. Configure environment variables
 
@@ -403,19 +425,25 @@ Details worth knowing:
 
 ### Stage 2: Transform (`transformation/transform.py`)
 
-**Fires** (`transform_fire_data`): reads each configured FIRMS archive in chunks of 100,000 rows and, for every chunk:
+**Fires** (`transform_fire_data`): for each year in `FIRE_ARCHIVES`, reads that year's FIRMS files in chunks of 100,000 rows and, for every chunk:
 
-- lower-cases and trims the column names, enforces a **canonical column schema** (the same columns in the same fixed order for every source, so MODIS and VIIRS chunks stay aligned when merged), and adds `satellite_source` (`modis`, `viirs_j1`, `viirs_suomi`);
+- lower-cases and trims the column names, enforces a **canonical column schema** (the FIRMS archive names `brightness` and `bright_t31`, the same columns in the same fixed order for every source, so MODIS and VIIRS chunks stay aligned when merged), and adds `satellite_source` (`modis`, `viirs_j1`, `viirs_j2`, `viirs_suomi`);
+- for near-real-time files, which have no FIRMS `type`, labels each detection with the static-source type of its ~2 km cell (0.02°) when that year's archive shows a static source there (volcano, other static land source or offshore) on at least 3 days, and 0 (vegetation fire) otherwise. Back-tested on 2026 (cells learned from January–May, scored on June–July, where the real type is known): 92% of static detections are labelled, and 0.6% of fires are wrongly labelled static;
 - parses `acq_date` and drops rows without coordinates;
 - converts VIIRS confidence labels to numbers (`l` → 25, `n` → 50, `h` → 100) and casts `type` and `acq_time` to integers;
 - runs `validate_fire_data` (see below);
 - writes the result to a temporary file in `cleaned_data/`.
 
-The temporary file replaces `cleaned_master_fires.csv` in one atomic step (`os.replace`) only after all sources have been processed, so an interrupted run never leaves a half-written master file behind.
+The temporary file replaces that year's cleaned file (`cleaned_master_fires.csv` for 2025, `cleaned_master_fires_2026.csv` for 2026) in one atomic step (`os.replace`) only after all its sources have been processed, so an interrupted run never leaves a half-written file behind. A year that is already cleaned is only validated.
+
+| Cleaned year | Detections | Dates | Severe (≥ 10 MW) | By satellite |
+|---|---|---|---|---|
+| 2025 | 40,681,879 | 1 Jan – 31 Dec | 28.1% | MODIS 3.7M, NOAA-20 18.5M, Suomi NPP 18.5M |
+| 2026 | 36,352,317 | 1 Jan – 13 Nov | 29.1% | MODIS 3.1M, NOAA-20 17.0M, NOAA-21 16.3M |
 
 **Weather** (`transform_weather_data`): drops rows without a date or coordinates, converts POWER's `-999` fill value to missing, drops rows where every climate value is missing, and writes `cleaned_data/cleaned_weather.csv` through a temporary file and an atomic replace.
 
-**Data-quality checks** (`utils/quality_checks.py`): `validate_fire_data` keeps only rows with valid coordinates (latitude −90..90, longitude −180..180), brightness above zero, FRP of zero or more, and removes fully duplicated rows. The brightness column is recognized under its sensor-specific names (`brightness`, `bright_ti4`, `bright_ti5`). It logs how many rows were dropped and why, and can raise if nothing is left. When an already-cleaned file is found, it is validated once and `cleaned_data/.fire_validated.flag` is written; later runs skip the heavy check unless the cleaned file is newer than the flag.
+**Data-quality checks** (`utils/quality_checks.py`): `validate_fire_data` keeps only rows with valid coordinates (latitude −90..90, longitude −180..180), brightness above zero, FRP of zero or more, and removes fully duplicated rows. The brightness column is recognized under its sensor-specific names (`brightness`, `bright_ti4`, `bright_ti5`). It logs how many rows were dropped and why, and can raise if nothing is left. When an already-cleaned file is found, it is validated once and a flag is written (`cleaned_data/.fire_validated.flag` for 2025, `.fire_validated_2026.flag` for 2026); later runs skip the heavy check unless the cleaned file is newer than its flag.
 
 ### Stage 3: Load (`loadation/load.py`)
 
@@ -493,44 +521,46 @@ On 20,000 live VIIRS fires (7–8 Nov 2026), the blank-trained model scored AUC 
 - **Spatial cross-validation.** `metrics.spatial_cv` is 5-fold GroupKFold over 5 x 5 degree blocks, so each fold is scored on places the model never trained on. It is reported as mean and standard deviation of ROC-AUC, Brier score, and recall and precision at the saved threshold. The chronological hold-out (`metrics.roc_auc` and the other existing keys) is unchanged.
 - **Recall-first threshold.** A missed severe fire costs more than a false alarm, so the saved `decision_threshold` is the highest one that still reaches `TARGET_RECALL` on the validation slice. `metrics.at_decision_threshold` gives precision and recall on the test period. The API uses the artifact's threshold unless `DECISION_THRESHOLD` is set, and `?decision_threshold=` on a request overrides both.
 - **Explainability.** After training, CatBoost's native TreeSHAP runs on 5,000 test rows. The mean absolute SHAP value per feature is logged as a text table, stored as `shap_importance`, and returned by `GET /api/v1/model`. In the current model, brightness, confidence, brightness per km² and scan carry most of the weight; every weather input is under 1%.
-- **Tuning.** `TUNE=1` scores depth 4/6/8 × learning rate 0.05/0.1 with spatial GroupKFold and keeps a setting only if it beats the default by `TUNE_MIN_GAIN` (0.005 AUC). In the run behind the current model, the best setting gained 0.0006, so the default (depth 6, learning rate 0.05) was kept.
+- **Tuning.** `TUNE=1` scores depth 4/6/8 × learning rate 0.05/0.1 with spatial GroupKFold and keeps a setting only if it beats the default by `TUNE_MIN_GAIN` (0.005 AUC). In the run behind the 2025-only model, the best setting gained 0.0006, so the default (depth 6, learning rate 0.05) was kept.
 
 #### Fire Risk Score (0–100)
 
-Because training uses balanced class weights, the raw probability runs high: on the test period it averaged 0.37 while 0.26 of fires were severe. `modeling/risk.py` fits an isotonic calibration on the validation slice (never the test period). The score is the calibrated chance in percent, so a score of 30 means about 30% of such fires turn out severe. Levels use measured cut-offs: Medium from half the typical severe share, High from the recall-first threshold, and Extreme from a 50% calibrated chance. Every prediction returns `risk_score` and `risk_level`, and `GET /api/v1/model` returns the cut-offs. Older artifacts without a scale return `null` for both.
+Because training uses balanced class weights, the raw probability runs high: on the test period it averaged 0.39 while 0.31 of fires were severe. `modeling/risk.py` fits an isotonic calibration on the validation slice (never the test period). The score is the calibrated chance in percent, so a score of 30 means about 30% of such fires turn out severe. Levels use measured cut-offs: Medium from half the typical severe share, High from the recall-first threshold, and Extreme from a 50% calibrated chance. Every prediction returns `risk_score` and `risk_level`, and `GET /api/v1/model` returns the cut-offs. Older artifacts without a scale return `null` for both.
 
-On the test period, the calibrated score cut the Brier score from 0.126 to 0.107 and matched the observed share (0.260 vs 0.257). The levels separate well:
+On the test period (29 June – 13 November 2026), the calibrated score cut the Brier score from 0.128 to 0.118 and matched the observed share (0.303 vs 0.309). The levels separate well:
 
 | Level | Share of test fires | Actually severe |
 |---|---|---|
-| Low | 53% | 5% |
-| Medium | 11% | 19% |
-| High | 17% | 35% |
-| Extreme | 20% | 77% |
+| Low | 45% | 5% |
+| Medium | 10% | 19% |
+| High | 21% | 34% |
+| Extreme | 25% | 78% |
 
-#### Before and after, on identical splits
+#### Trained on 2025 and 2026
 
-`COMPARE_WITH=<old artifact>` scores the previous model on exactly the same validation slice and chronological test period (76,073 fires from 2025-10-20). Each model's threshold is picked on the validation slice with the same rule. The previous model trained on the dates that now form the validation slice, so only its test numbers are a fair comparison.
+The current model is trained on both yearly archives: a uniform sample of 500,000 weather-matched detections from 1 January 2025 to 11 November 2026 (the last day with NASA POWER weather), from the two-year `fires_sample.csv`. The chronological split puts the last 20% of dates in the test period: 134,243 detections from 29 June to 13 November 2026, which includes the near-real-time months whose `type` is labelled (see Stage 2). Early stopping chose 1,203 rounds, so the default cap was raised from 1,000 to 2,500.
 
-| Test period | Previous (blank-trained CatBoost) | Current |
+`COMPARE_WITH=<old artifact>` scores the previous model, trained on 2025 only, on exactly the same validation slice and test period. Each model's threshold is picked on the validation slice with the same rule.
+
+| Test period (29 Jun – 13 Nov 2026) | Previous (2025 only) | Current (2025 + 2026) |
 |---|---|---|
-| ROC-AUC | 0.8928 | 0.8928 |
-| PR-AUC | 0.7856 | 0.7871 |
-| Threshold (from validation) | 0.453 | 0.441 |
-| Recall | 0.805 | 0.813 |
-| Precision | 0.592 | 0.582 |
-| F1 | 0.682 | 0.678 |
-| Severe fires missed | 3,806 | 3,658 |
-| Spatial CV ROC-AUC (5° blocks) | not measured | 0.895 ± 0.005 |
-| Spatial CV recall at threshold | not measured | 0.828 ± 0.010 |
+| ROC-AUC | 0.8894 | 0.8905 |
+| PR-AUC | 0.8130 | 0.8144 |
+| Threshold (from validation) | 0.358 | 0.366 |
+| Recall | 0.859 | 0.858 |
+| Precision | 0.586 | 0.588 |
+| Severe fires missed | 5,861 | 5,876 |
+| Spatial CV ROC-AUC (5° blocks) | 0.895 ± 0.005 (on 2025) | 0.892 ± 0.004 |
+| Spatial CV recall at threshold | 0.828 ± 0.010 (on 2025) | 0.868 ± 0.006 |
 
-Ranking quality is unchanged. The gains are fewer missed severe fires, calibrated scores, and validation that measures generalisation to unseen places.
+Adding 2026 does not make the model more accurate on the newest months: the two models tie. What changes is that the current one has learned from NOAA-21 and from 2026, and its threshold and Fire Risk Score are calibrated on 2026. With place and time only it scores 0.741 (0.739 for the 1,000-round run). Recall is higher than the 2025-only model's on its own 2025 test period (0.813) because the recall-first threshold now sits lower (0.366 against 0.441); precision is about the same.
 
 Limitations, stated plainly:
-- On 20,000 live fires from 7–8 Nov 2026, the current model scored AUC 0.861 with every input (previous: 0.864) and 0.677 with place and date only (previous: 0.708). That is two days of data, but it is the deployment year, so the place-and-date-only case may have lost a little.
+- On 20,000 live fires from 7–8 Nov 2026, the 2025-only model scored AUC 0.861 with every input (previous: 0.864) and 0.677 with place and date only (previous: 0.708). That is two days of data, but it is the deployment year, so the place-and-date-only case may have lost a little.
 - The derived features made no difference in spatial CV (0.8949 with and without). Training without them scored lower on the test period (0.8902), so they stay on (`USE_DERIVED_FEATURES=1`).
 - Early stopping holds back the last 15% of training dates. Refitting on all training dates at the chosen iteration may recover some accuracy; this has not been tested.
-- The model is trained on one year (2025). Scores for other years and for places outside the training extent are extrapolations.
+- The model is trained on 2025 and 2026 (to 11 November). Scores for other years and for places outside the training extent are extrapolations.
+- In the 2026 near-real-time months, `type` is labelled from earlier static-source spots, not reported by FIRMS; `type` carries under 1% of the model's weight.
 - No temporal (multi-day) weather features and no fire-weather index: neither is available per fire at serving time, so neither was invented.
 
 CatBoost was benchmarked against Random Forest and XGBoost; see the next section.
@@ -583,7 +613,7 @@ TRAINING_SOURCE=csv python modeling/train_model.py  # train from cleaned_data/ w
 | `MODEL_ARTIFACT_PATH` | `modeling/artifacts/high_frp_classifier.joblib` | Where the model is saved |
 | `FORCE_RETRAIN` | `0` | Retrain even if an artifact exists |
 | `DB_SCHEMA` | `public` | Schema holding the tables |
-| `CATBOOST_ITERATIONS` | `1000` | Cap on boosting rounds; early stopping usually stops sooner |
+| `CATBOOST_ITERATIONS` | `2500` | Cap on boosting rounds; early stopping decides (1,203 rounds for the 2025 + 2026 model; 1,000 was too few) |
 | `CATBOOST_EARLY_STOPPING_ROUNDS` | `50` | Stop when validation AUC has not improved for this many rounds, and keep the best iteration |
 | `CATBOOST_DEPTH` / `CATBOOST_LEARNING_RATE` / `CATBOOST_L2_LEAF_REG` | `6` / `0.05` / `3` | Tree depth, learning rate, L2 regularisation |
 | `CATBOOST_BORDER_COUNT` | `0` (CatBoost default) | Number of bins per numeric feature |
@@ -643,11 +673,13 @@ The response contains `high_frp_probability`, `is_high_frp`, `predicted_label`, 
 | `postgres` | PostgreSQL only; fail if unavailable |
 | `csv` | In-memory CSV backend |
 
-The CSV backend serves `cleaned_data/fires_sample.csv` when present, otherwise the first `CSV_MAX_ROWS` rows of `cleaned_master_fires.csv`. Create a sample with:
+The CSV backend serves `cleaned_data/fires_sample.csv` when present, otherwise the first `CSV_MAX_ROWS` rows (default 1,000,000) of `cleaned_master_fires.csv`. Create a sample with:
 
 ```bash
-python -m api.tools_make_sample --rows 300000
+python -m api.tools_make_sample --rows 600000
 ```
+
+The sample is uniform over every cleaned yearly file together (77 million detections for 2025 and 2026), so one sample fraction scales the counts of both years. `CSV_MAX_ROWS` must stay above the sample size, or the newest dates are cut off.
 
 For fast filtering on large PostgreSQL tables, create the indexes once (idempotent):
 
@@ -680,7 +712,7 @@ The API serves the frontend at `/` (disable with `SERVE_FRONTEND=0`). It needs i
 
 ### Ask Flick (GeoFlare)
 
-Flick is GeoFlare's mascot, a little flame with a satellite orbiting its head. The **Ask Flick** button at the bottom-right of every GeoFlare page opens a chat about "fires since 2003, the 2025 records and the AI model".
+Flick is GeoFlare's mascot, a little flame with a satellite orbiting its head. The **Ask Flick** button at the bottom-right of every GeoFlare page opens a chat about "fires since 2003, every 2026 and 2025 record, and the AI model".
 
 - Questions go to the GeoData assistant through GeoFlare's same-origin `/geodata/` proxy, so GeoData AI (port 8000) must be running.
 - The chat keeps the last 10 turns, offers three suggested questions (for example "How did Egypt's fires change since 2003?"), and **Start over** clears it.
@@ -692,7 +724,7 @@ The assistant picks its source by the year a question is about:
 
 | Question about | Source | What it can tell you |
 |---|---|---|
-| 2025 and 2026 | PostgreSQL `geodata_db` (GeoData AI) | Individual detections, counts, FRP, the model's severity scores, and weather. `get_data_coverage` reports the exact dates in the table |
+| 2025 and 2026 | PostgreSQL `geodata_db` (GeoData AI), or the CSV sample without a database | Individual detections, counts, FRP, the model's severity scores, and weather. `get_data_coverage` lists each yearly archive and its dates. A question that names no year is answered for 2026, the default |
 | 2003 to 2024 | DuckDB over GeoFlare's harmonized Parquet record | Yearly fire-detection counts (in VIIRS units) and the fire season and trend derived from them. No severity, no weather, no individual fires |
 | Any other year | None | The assistant says it has no data for that year |
 
@@ -715,7 +747,7 @@ The 2003 to 2024 route needs GeoFlare running on port 8010 (`GEOFLARE_API` chang
 - The tool loop is capped (`ASSISTANT_MAX_ROUNDS`), every lookup is returned to the caller in `tool_calls`, and tool errors are passed back to the model so it can correct its input.
 - Tool inputs are validated and clamped before they reach a query.
 - When the CSV backend serves a sample, the assistant says so and scales absolute counts accordingly.
-- Set `GROQ_API_KEY` to turn the assistant on (`.env.example` lists only this key). `GROQ_MODEL` picks the model. The rest of the API works without a key, and `ASSISTANT_ENABLED=0` switches the assistant off. Groq rate limits apply to your key, and the API reports a short "try again" message when one is hit.
+- Set `GROQ_API_KEY` to turn the assistant on (`.env.example` lists only this key). `GROQ_MODEL` picks the model. The rest of the API works without a key, and `ASSISTANT_ENABLED=0` switches the assistant off. Groq rate limits apply to your key. A free key gets 8,000 tokens a minute and a question that needs two lookups can use about 12,000, so when Groq asks for a wait of up to 60 seconds the assistant waits once and retries (the answer then takes longer); a longer wait is reported as a short "try again" message. Optional tool arguments are sent as nullable, because the Groq model fills unused filters with null and Groq would otherwise reject the call.
 - Because `search_project_docs` indexes this README, keeping it accurate directly improves the assistant's answers about the project.
 
 ---
@@ -726,13 +758,15 @@ GeoFlare is the NASA Space Apps 2026 app by Team FLARECRAFT (challenge: *Harmoni
 
 | App | What it does |
 |---|---|
-| **Fires · Past** | A burning-activity calendar for any country or drawn area since 2003, built from a harmonized MODIS + VIIRS record, with fire season, unusual weeks, long-term trends and a country leaderboard; and the 2025 archive map with the data assistant |
+| **Fires · Past** | A burning-activity calendar for any country or drawn area since 2003, built from a harmonized MODIS + VIIRS record, with fire season, unusual weeks, long-term trends and a country leaderboard; and the archive map of every 2026 (default) and 2025 detection, with the data assistant |
 | **Fires · Now** | Today's fires from NASA's live feed and a 4-week outlook. Scores today's fires with this repository's CatBoost model (Fire Risk Score), grades the scores against the fire power the satellites measured |
 | **Air** | Joins nearby gas-flare and factory heat sites, live air quality, and wind into a verdict and precautions for any place |
 
-**Ask Flick.** A chat button on every page lets you ask about the fires since 2003, the 2025 records, and the model; see [Ask Flick](#ask-flick-geoflare).
+**Ask Flick.** A chat button on every page lets you ask about the fires since 2003, every 2026 and 2025 record, and the model; see [Ask Flick](#ask-flick-geoflare).
 
 **Why harmonize.** VIIRS (375 m pixels) records about 4× more detections than MODIS (1 km pixels) for the same fires, so a stitched record shows a false jump in 2012. GeoFlare learns, cell by cell and week by week, how many detections VIIRS would have made from what MODIS saw, and reconstructs 2003–2011 in VIIRS units with uncertainty bands.
+
+**2026 in History and Air.** `python -m pipeline.extend` adds the running year to the record from the GeoData 2026 archive, without retraining. Suomi NPP (the record's VIIRS unit) has no 2026 data, so 2026 is VIIRS NOAA-20 times its ratio to Suomi NPP in 2019–2025, when both flew (0.996 for fires, 0.987 for industrial heat). Only complete weeks are kept (to 11 November), and 2026 is marked as running: it shows in the calendar, the typical-year chart, the maps, the unusual months, the story's first chapter and Air's factory and flare glow, while "normal", trends, the 2012 jump and year-to-year comparisons use complete years. The patterns page adds 2026 so far against the same weeks of 2025: fires +1%, factory and flare heat +3%.
 
 **Validation** (leave one year out, 14 held-out years): the median monthly error by region (MdAPE, median absolute percentage error) is 33%, against 35% for a single global conversion factor, and the model wins in 12 of the 14 years. The year-level R² on log counts is 0.94, against 0.91. 80% of true values fall inside the 80% uncertainty bands. The gain over a single factor is real but modest; the larger value is the per-place calendar with honest ranges.
 

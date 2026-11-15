@@ -10,7 +10,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from config import DB_CONFIG, CLEANED_DATA_DIR
+from config import CLEANED_DATA_DIR, CLEANED_FIRE_FILES, DB_CONFIG
 
 LOGGER = logging.getLogger("geodata.load")
 
@@ -95,26 +95,33 @@ def swap_in_table(engine, staging, target, index_columns=()):
 def load_data_to_postgres():
     """Upload cleaned datasets.
 
-    Fire detections are skipped when ``fire_events`` already exists with rows.
-    Weather is reloaded whenever the cleaned file's row count differs from the
-    table, so an extended NASA POWER download reaches the database.
+    Every cleaned yearly fire file (2025, 2026, ...) goes into ``fire_events``. Fires and weather are each
+    reloaded whenever the cleaned files' row count differs from the table, so a new year or an extended
+    NASA POWER download reaches the database; otherwise the upload is skipped.
     """
     engine = create_engine(get_connection_url(), pool_pre_ping=True)
     try:
         with engine.connect() as connection:
             connection.execute(text("SELECT 1"))
-            fire_is_loaded = table_contains_rows(connection, "fire_events")
+            fire_rows_in_db = table_row_count(connection, "fire_events")
             weather_rows_in_db = table_row_count(connection, "weather_data")
 
-        fires_file = os.path.join(CLEANED_DATA_DIR, "cleaned_master_fires.csv")
-        if fire_is_loaded:
-            LOGGER.info("Table fire_events already contains rows; skipping upload.")
-        elif os.path.isfile(fires_file):
-            LOGGER.info("Uploading cleaned fire data to fire_events (via a staging table).")
+        names = [os.path.basename(path) for path in CLEANED_FIRE_FILES.values()]
+        fire_files = [os.path.join(CLEANED_DATA_DIR, name) for name in names if os.path.isfile(os.path.join(CLEANED_DATA_DIR, name))]
+        fire_rows_in_files = sum(csv_row_count(path) for path in fire_files)
+        if fire_rows_in_db and fire_rows_in_db == fire_rows_in_files:
+            LOGGER.info("Table fire_events already holds the %s cleaned fire rows; skipping upload.", f"{fire_rows_in_db:,}")
+        elif fire_files:
+            if fire_rows_in_db:
+                LOGGER.info("fire_events has %s rows but the cleaned files have %s; reloading it.",
+                            f"{fire_rows_in_db:,}", f"{fire_rows_in_files:,}")
+            LOGGER.info("Uploading cleaned fire data (%s) to fire_events (via a staging table).",
+                        ", ".join(os.path.basename(path) for path in fire_files))
             first_chunk = True
             uploaded_rows = 0
 
-            for chunk in pd.read_csv(fires_file, chunksize=50_000, low_memory=False):
+            chunks = (chunk for path in fire_files for chunk in pd.read_csv(path, chunksize=50_000, low_memory=False))
+            for chunk in chunks:
                 chunk = normalize_fire_chunk(chunk)
                 chunk.to_sql(
                     "fire_events_staging",
@@ -128,11 +135,11 @@ def load_data_to_postgres():
                     LOGGER.info("Uploaded %s fire rows so far.", f"{uploaded_rows:,}")
 
             if first_chunk:
-                raise ValueError(f"Cleaned fire file contains no rows: {fires_file}")
+                raise ValueError(f"Cleaned fire files contain no rows: {', '.join(fire_files)}")
             swap_in_table(engine, "fire_events_staging", "fire_events", index_columns=("acq_date",))
             LOGGER.info("Uploaded %s rows to fire_events.", f"{uploaded_rows:,}")
         else:
-            raise FileNotFoundError(f"Cleaned fire file not found: {fires_file}")
+            raise FileNotFoundError(f"No cleaned fire file ({', '.join(names)}) found in {CLEANED_DATA_DIR}")
 
         weather_file = os.path.join(CLEANED_DATA_DIR, "cleaned_weather.csv")
         if not os.path.isfile(weather_file):

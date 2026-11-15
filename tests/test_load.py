@@ -42,13 +42,23 @@ def test_rerun_skips_current_tables_and_reloads_changed_weather(sqlite_load):
     folder, engine = sqlite_load
     load.load_data_to_postgres()
     with engine.begin() as connection:
-        connection.execute(text("INSERT INTO fire_events (latitude, longitude, acq_date, frp) VALUES (1, 2, '2025-05-05', 3)"))
+        connection.execute(text("UPDATE fire_events SET frp = 999"))   # a marker that a reload would wipe
     extended = pd.DataFrame(WEATHER_ROWS * 4, columns=WEATHER_COLUMNS)
     extended.to_csv(folder / "cleaned_weather.csv", index=False)
 
     load.load_data_to_postgres()
-    assert _count(engine, "fire_events") == len(FIRE_ROWS) + 1  # fires are not reloaded
-    assert _count(engine, "weather_data") == len(extended)        # weather is
+    with engine.connect() as connection:
+        assert connection.execute(text("SELECT MIN(frp) FROM fire_events")).scalar_one() == 999  # fires are not reloaded
+    assert _count(engine, "weather_data") == len(extended)                                      # weather is
+
+
+def test_a_new_yearly_file_reloads_fires_with_every_year(sqlite_load):
+    folder, engine = sqlite_load
+    load.load_data_to_postgres()
+    pd.DataFrame(FIRE_ROWS, columns=FIRE_COLUMNS).to_csv(folder / "cleaned_master_fires_2026.csv", index=False)
+
+    load.load_data_to_postgres()
+    assert _count(engine, "fire_events") == 2 * len(FIRE_ROWS)
 
 
 def test_a_crashed_upload_never_replaces_the_live_table(sqlite_load, monkeypatch):

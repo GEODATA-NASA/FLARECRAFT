@@ -111,7 +111,7 @@ const Air = (() => {
     if (w && w.times >= 1.5) lines.push(`The main problem is ${esc(w.name.split(" (")[0])}, about <strong>${w.times.toFixed(0)}×</strong> the safe level.`);
     const n = r.sites[0];
     if (!n) lines.push("Good news: no gas flares or factories glow within 100 km of you.");
-    else if (v.downwind) lines.push(`And watch out: the wind is blowing from a site ${m.km.toFixed(0)} km to the ${compass(m.bearing)} that glowed ${m.weeks} weeks last year, straight toward you.`);
+    else if (v.downwind) lines.push(`And watch out: the wind is blowing from a site ${m.km.toFixed(0)} km to the ${compass(m.bearing)} that glowed ${m.weeks} weeks in ${r.year_label || "the last year"}, straight toward you.`);
     else if (n.km <= 30) lines.push(`The closest industrial heat is ${n.km.toFixed(0)} km to the ${compass(n.bearing)}${v.downwind === false ? ", but today the wind carries the fumes away from you" : ""}.`);
     else lines.push(`The closest industrial heat is ${n.km.toFixed(0)} km away, far enough that it matters little on most days.`);
     lines.push(`Press <strong>▶</strong> and I'll show you what to do.`);
@@ -128,7 +128,7 @@ const Air = (() => {
     for (const s of r.sites) {
       L.circleMarker([s.lat, s.lon], { radius: 4 + 9 * Math.sqrt(s.glow / maxGlow), color: s.lit_now ? css("--hot") : "transparent", weight: s.lit_now ? 3 : 0,
         fillColor: css("--flare"), fillOpacity: 0.8 })
-        .bindTooltip(`${s.km.toFixed(0)} km ${compass(s.bearing)} · glowed ${s.weeks} of 52 weeks in ${r.year}${s.lit_now ? " · glowing today" : ""}`).addTo(group);
+        .bindTooltip(`${s.km.toFixed(0)} km ${compass(s.bearing)} · glowed ${s.weeks} of ${r.weeks_in_year || 52} weeks in ${r.year_label || r.year}${s.lit_now ? " · glowing today" : ""}`).addTo(group);
     }
     if (r.verdict.downwind && r.main_site) {
       L.polyline([[r.main_site.lat, r.main_site.lon], here], { color: css("--hot"), weight: 2.5, dashArray: "2 7", lineCap: "round" }).addTo(group);
@@ -267,11 +267,11 @@ const Air = (() => {
   function renderIndustry() {
     const d = state.industry;
     if (!d) return;
-    const total = (d.global.find((g) => g[0] === d.year) || [0, 0])[1], top = d.ranking[0];
+    const total = d.total ?? (d.global.find((g) => g[0] === d.year) || [0, 0])[1], top = d.ranking[0], yl = d.year_label || d.year;
     facts("ind-glance", [
-      { k: `Industrial hotspots in ${d.year}`, v: fmt(total), d: "hot pixels at flares, refineries and plants" },
-      { k: "Sites", v: fmt(d.site_count || d.sites.length), d: `places with industrial heat in ${d.year}; the ${fmt(d.sites.length)} brightest are on the map` },
-      { k: "Glows most", v: top ? top[0] : "—", accent: !!top, d: top ? `${fmt(top[1])} hotspots in ${d.year}` : "" },
+      { k: `Industrial hotspots in ${yl}`, v: fmt(total), d: "hot pixels at flares, refineries and plants" },
+      { k: "Sites", v: fmt(d.site_count || d.sites.length), d: `places with industrial heat in ${yl}; the ${fmt(d.sites.length)} brightest are on the map` },
+      { k: "Glows most", v: top ? top[0] : "—", accent: !!top, d: top ? `${fmt(top[1])} hotspots in ${yl}` : "" },
       { k: "Today", v: state.live ? fmt(state.live.industrial) : "…", d: "seen at known sites in the last day" },
     ]);
     getMap("ind-map", [[26, 40], 2]);
@@ -279,7 +279,7 @@ const Air = (() => {
     group.clearLayers();
     for (const [lat, lon, n, weeks, country] of d.sites) {
       L.circleMarker([lat, lon], { radius: 2 + 7 * Math.sqrt(n / maxN), stroke: false, fillColor: css("--flare"), fillOpacity: 0.75 })
-        .bindTooltip(`${country && country !== "?" ? country + " · " : ""}${fmt(n)} hot pixels in ${d.year}, glowing in ${weeks} weeks. Tap to check the air here.`)
+        .bindTooltip(`${country && country !== "?" ? country + " · " : ""}${fmt(n)} hot pixels in ${d.year_label || d.year}, glowing in ${weeks} weeks. Tap to check the air here.`)
         .on("click", () => { pick({ name: `Near a site in ${country && country !== "?" ? country : "this area"}`, lat, lon }); scrollTo({ top: 0, behavior: "smooth" }); })
         .addTo(group);
     }
@@ -313,7 +313,7 @@ const Air = (() => {
   const tour = [
     { at: ".air-search", mood: "happy", say: "Type where you live, or let your browser share your location. Nothing is stored." },
     { at: "#air-presets", mood: "wink", say: "No idea where to start? <strong>Basra</strong> and <strong>Port Harcourt</strong> sit next to some of the world's biggest gas flares." },
-    { at: "#ind-map-card", mood: "think", say: "Down here is every factory and flare that glowed in 2025. Tap any dot and I'll check the air around it." },
+    { at: "#ind-map-card", mood: "think", say: "Down here is every factory and flare that glowed this year so far. Tap any dot and I'll check the air around it." },
   ];
 
   return { show, pick, tour };

@@ -353,9 +353,13 @@ class Live:
             per = s.db.sql(f"""SELECT c.country, w.year, SUM(w.{col})::DOUBLE AS n FROM '{s.cellweek}' w JOIN cells_df c USING (cell)
                                WHERE w.{col} IS NOT NULL GROUP BY ALL""").df()
             last = int(years.year.max())
+            part = s.partial if s.partial and s.partial["year"] == last else None
             ranking = per[(per.year == last) & (per.country != "?")].sort_values("n", ascending=False).head(12)
-            series = {c: per[per.country == c].sort_values("year")[["year", "n"]].values.tolist() for c in ranking.country}
-            return {"year": last, "global": years.values.tolist(), "ranking": ranking[["country", "n"]].values.tolist(),
+            whole = (lambda f: f[f.year != last]) if part else (lambda f: f)   # trend charts: complete years only
+            series = {c: whole(per[per.country == c]).sort_values("year")[["year", "n"]].values.tolist() for c in ranking.country}
+            return {"year": last, "year_label": f"{last} so far" if part else str(last),
+                    "total": float(years[years.year == last].n.sum()),
+                    "global": whole(years).values.tolist(), "ranking": ranking[["country", "n"]].values.tolist(),
                     "series": series, "sites": s.industrial_sites(last, limit=1500),
                     # every cell with industrial heat that year; "sites" holds only the brightest 1,500 for the map
                     "site_count": int(s.db.execute(f"SELECT COUNT(*) FROM (SELECT cell FROM '{s.cellweek}' WHERE year = {last} AND {col} > 0 GROUP BY cell)").fetchall()[0][0])}

@@ -6,6 +6,7 @@ reply back into Anthropic-shaped blocks. The loop in service.py stays unchanged.
 """
 
 import json
+import time
 from types import SimpleNamespace
 
 import requests
@@ -46,6 +47,30 @@ def to_blocks(choice: dict) -> list:
     return blocks
 
 
+def nullable_optionals(schema):
+    """Let optional arguments be null. gpt-oss fills unused filters with null, and Groq rejects the whole call
+    (400 tool_use_failed) unless the schema allows it; the tools already treat a missing filter as no filter."""
+    required = set(schema.get("required", []))
+    props = {}
+    for name, spec in schema.get("properties", {}).items():
+        if name not in required and isinstance(spec.get("type"), str):
+            spec = {**spec, "type": [spec["type"], "null"]}
+            if "enum" in spec:
+                spec["enum"] = [*spec["enum"], None]
+        props[name] = spec
+    return {**schema, "properties": props}
+
+
+MAX_RETRY_WAIT_SECONDS = 60  # a free key refills 8,000 tokens a minute; a 2-lookup question needs ~12,000
+
+
+def _seconds(value):
+    try:
+        return max(0.0, float(value))
+    except (TypeError, ValueError):
+        return None
+
+
 class GroqClient:
     """Just enough of anthropic.Anthropic for AssistantService: .api_key and .messages.create(**params)."""
 
@@ -59,12 +84,18 @@ class GroqClient:
             "model": model,
             "max_tokens": min(max_tokens, 8192),
             "messages": to_openai_messages(system[0]["text"], messages),
-            "tools": [{"type": "function", "function": {"name": t["name"], "description": t["description"], "parameters": t["input_schema"]}} for t in tools],
+            "tools": [{"type": "function", "function": {"name": t["name"], "description": t["description"], "parameters": nullable_optionals(t["input_schema"])}} for t in tools],
         }
-        try:
-            response = requests.post(GROQ_URL, json=body, headers={"Authorization": f"Bearer {self.api_key}"}, timeout=self.timeout)
-        except requests.RequestException as error:
-            raise GroqError("Could not reach the Groq API.") from error
+        for attempt in range(2):
+            try:
+                response = requests.post(GROQ_URL, json=body, headers={"Authorization": f"Bearer {self.api_key}"}, timeout=self.timeout)
+            except requests.RequestException as error:
+                raise GroqError("Could not reach the Groq API.") from error
+            # One question can need more tokens than a free key gets per minute; Groq then says how long to wait.
+            wait = _seconds(response.headers.get("retry-after")) if response.status_code == 429 and not attempt else None
+            if wait is None or wait > MAX_RETRY_WAIT_SECONDS:
+                break
+            time.sleep(wait)
         if response.status_code == 401:
             raise GroqError("Groq rejected the API key (GROQ_API_KEY).")
         if response.status_code == 429:

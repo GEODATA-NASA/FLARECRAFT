@@ -7,6 +7,9 @@
 
   const SOURCE_LABELS = { modis: "MODIS", viirs_j1: "VIIRS NOAA‑20", viirs_j2: "VIIRS NOAA‑21", viirs_suomi: "VIIRS Suomi NPP" };
   const SOURCE_VARS = { modis: "--src-1", viirs_j1: "--src-2", viirs_j2: "--src-2", viirs_suomi: "--src-3" };
+  // Satellites in each yearly archive: Suomi NPP delivered nothing in 2026 and NOAA-21 joined.
+  // shortcut: hard-coded per year, add a line when a new yearly archive is cleaned.
+  const YEAR_SOURCES = { 2025: ["modis", "viirs_j1", "viirs_suomi"], 2026: ["modis", "viirs_j1", "viirs_j2"] };
   const MOTION = !window.matchMedia("(prefers-reduced-motion: reduce)").matches && typeof anime === "function";
   const DEFAULT_CAPTION = "Detections per day. Severe share in red.";
   const el = (id) => document.getElementById(id);
@@ -236,12 +239,24 @@
   }
   const addDays = (iso, days) => { const d = new Date(iso + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + days); return d.toISOString().slice(0, 10); };
   const checkedValue = (name) => { const n = document.querySelector(`input[name="${name}"]:checked`); return n ? n.value : ""; };
+  const archiveYear = () => Number(checkedValue("dataset")) || null;   // null while "Live now" is picked
+  function yearBounds(year) {   // the year's days that the loaded data covers
+    const r = (state.health && state.health.fire_date_range) || {}, lo = `${year}-01-01`, hi = `${year}-12-31`;
+    return [r.start_date && r.start_date > lo ? r.start_date : lo, r.end_date && r.end_date < hi ? r.end_date : hi];
+  }
+  function applyYear() {
+    const year = archiveYear();
+    if (!year) return;
+    const [lo, hi] = yearBounds(year), sources = YEAR_SOURCES[year];
+    ["start-date", "end-date"].forEach((id) => { el(id).min = lo; el(id).max = hi; });
+    document.querySelectorAll('input[name="source"]').forEach((i) => { i.closest("label").hidden = Boolean(sources) && !sources.includes(i.value); });
+  }
 
   // -------------------------------------------------------------- filters
   function readFilters() {
     const params = {
       start_date: el("start-date").value, end_date: el("end-date").value,
-      source: Array.from(document.querySelectorAll('input[name="source"]:checked')).map((i) => i.value),
+      source: Array.from(document.querySelectorAll('input[name="source"]:checked')).filter((i) => !i.closest("label").hidden).map((i) => i.value),
       min_confidence: el("min-confidence").value, min_frp: el("min-frp").value, daynight: checkedValue("daynight"),
     };
     if (el("use-viewport").checked) {
@@ -251,7 +266,8 @@
     return params;
   }
   function resetFilters() {
-    const end = (state.health && state.health.fire_date_range.end_date) || new Date().toISOString().slice(0, 10);
+    applyYear();
+    const end = archiveYear() ? yearBounds(archiveYear())[1] : (state.health && state.health.fire_date_range.end_date) || new Date().toISOString().slice(0, 10);
     el("end-date").value = end;
     el("start-date").value = addDays(end, -6);
     document.querySelectorAll('input[name="source"]').forEach((i) => { i.checked = true; });
@@ -428,6 +444,12 @@
     ["start-date", "end-date"].forEach((id) => { el(id).disabled = live; });
     ["archive-dates", "archive-sats", "reset-btn"].forEach((id) => { el(id).hidden = live; });   // the live feed fixes its own dates and satellite
     document.querySelectorAll('input[name="source"]').forEach((i) => { i.disabled = live; });
+    if (!live) {   // a new year: its last week, and only the satellites that flew that year
+      applyYear();
+      const end = yearBounds(archiveYear())[1];
+      el("end-date").value = end; el("start-date").value = addDays(end, -6);
+      if (!state.dateTouched) el("p-date").value = end;
+    }
     loadFires();
   }
 

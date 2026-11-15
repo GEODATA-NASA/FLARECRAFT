@@ -7,7 +7,7 @@ ROOT_DIR = Path(__file__).resolve().parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from config import CLEANED_DATA_DIR
+from config import CLEANED_DATA_DIR, CLEANED_FIRE_FILES
 from integration.NASA_POWER import download_weather_data
 from loadation.load import load_data_to_postgres
 from modeling.train_model import main as train_model
@@ -25,9 +25,11 @@ def run_pipeline():
     transform_fire_data(collect_data=False)
     transform_weather_data()
 
-    fire_file = Path(CLEANED_DATA_DIR) / "cleaned_master_fires.csv"
+    fire_files = [Path(CLEANED_DATA_DIR) / Path(path).name for path in CLEANED_FIRE_FILES.values()]
     weather_file = Path(CLEANED_DATA_DIR) / "cleaned_weather.csv"
-    missing_files = [str(path) for path in (fire_file, weather_file) if not path.is_file()]
+    missing_files = [str(path) for path in (weather_file,) if not path.is_file()]
+    if not any(path.is_file() for path in fire_files):
+        missing_files.append(" or ".join(map(str, fire_files)))
     if missing_files:
         raise FileNotFoundError(
             "Transformation did not produce required cleaned files: "

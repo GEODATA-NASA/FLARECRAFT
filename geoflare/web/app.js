@@ -15,7 +15,7 @@ const App = (() => {
   const VIEWS = ["fires", "air"];
   // Fires sub-sections and the tab each belongs to. "severe" opens from Today's button and stays under Now > Today.
   const FSUBS = { history: "past", archive: "past", today: "now", severe: "now", outlook: "now" };
-  const FTABS = { past: [["history", "History"], ["archive", "2025 archive"]], now: [["today", "Today"], ["outlook", "Next 4 weeks"]] };
+  const FTABS = { past: [["history", "History"], ["archive", "Archive"]], now: [["today", "Today"], ["outlook", "Next 4 weeks"]] };
   const OLD_SUBS = { now: "today", explore: "archive" };   // links from before the Dashboard was folded into Fires
   const weekDate = (w) => { const d = new Date(Date.UTC(2001, 0, 1 + w * 7)); return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`; };
   const query = (a) => (a.country ? `country=${encodeURIComponent(a.country)}` : a.bbox ? `bbox=${a.bbox.join(",")}` : "");
@@ -42,7 +42,9 @@ const App = (() => {
     $("year-pick").innerHTML = state.current.years.slice().reverse().map((y) => `<option>${y}</option>`).join("");
     renderHistory();
     const c = state.current;
-    selectWeek(c.years[c.years.length - 1], c.season ? c.season.peak : 30);
+    const lastYear = c.years[c.years.length - 1], peak = c.season ? c.season.peak : 30;
+    // the running year has no data after its last complete week: open the latest year that has that week
+    selectWeek(c.partial && c.partial.year === lastYear && peak > c.partial.last_week ? lastYear - 1 : lastYear, peak);
     explainArea();
   }
 
@@ -86,7 +88,7 @@ const App = (() => {
     const c = state.current, { values, observed, anomaly } = c.calendar, years = c.years;
     const width = Math.max(640, $("calendar").clientWidth), left = 44, top = 30;
     const cw = (width - left - 4) / 52, ch = Math.max(11, Math.min(20, cw * 0.95));
-    const all = values.flat().filter((v) => v > 0).sort(d3.ascending);
+    const all = values.flat().filter((v) => v > 0).sort(d3.ascending), notYet = css("--cal-empty");
     const hi = d3.quantile(all, 0.995) || 1, lo = Math.max(0.5, d3.quantile(all, 0.05) || 0.5);
     const r = ramp(), empty = css("--cal-empty");
     const color = (v) => (v <= 0 ? empty : r(Math.min(1, Math.max(0, Math.log(v / lo) / Math.log(hi / lo)))));
@@ -97,10 +99,12 @@ const App = (() => {
     if (c.season) c.season.critical_weeks.forEach((w) => svg.append("rect").attr("x", left + w * cw).attr("y", top - 9).attr("width", cw + 0.4).attr("height", 3).attr("rx", 1.5).attr("fill", css("--accent")));
     years.forEach((year, ri) => {
       const y = top + ri * ch;
-      svg.append("text").attr("class", "cal-year").attr("x", left - 8).attr("y", y + ch * 0.72).attr("text-anchor", "end").text(year);
+      svg.append("text").attr("class", "cal-year").attr("x", left - 8).attr("y", y + ch * 0.72).attr("text-anchor", "end").text(year)
+        .append("title").text(c.partial && c.partial.year === year ? `${year} so far, up to ${c.partial.through}` : String(year));
       const row = svg.append("g");
       row.selectAll("rect").data(values[ri].map((v, w) => ({ v, w, year, r: ri }))).join("rect")
-        .attr("class", "cal-cell").attr("x", (d) => left + d.w * cw).attr("y", y).attr("width", cw - 1.5).attr("height", ch - 1.5).attr("rx", 2.5).attr("fill", (d) => color(d.v))
+        .attr("class", "cal-cell").attr("x", (d) => left + d.w * cw).attr("y", y).attr("width", cw - 1.5).attr("height", ch - 1.5).attr("rx", 2.5)
+        .attr("fill", (d) => (d.v == null ? notYet : color(d.v))).attr("fill-opacity", (d) => (d.v == null ? 0.35 : 1))
         .on("mousemove", calTip).on("mouseleave", hideTip).on("click", (e, d) => selectWeek(d.year, d.w));
       if (!observed[ri]) row.append("rect").attr("x", left).attr("y", y).attr("width", cw * 52 - 1.5).attr("height", ch - 1.5).attr("fill", "url(#hatch)").attr("pointer-events", "none");
       anomaly[ri].forEach((z, w) => {
@@ -118,6 +122,7 @@ const App = (() => {
     const c = state.current, lo = c.weekly.lo[d.r][d.w], hi = c.weekly.hi[d.r][d.w], normal = c.climatology.median[d.w], z = c.calendar.anomaly[d.r][d.w];
     const times = normal > 0.5 ? d.v / normal : null;
     const compare = times == null ? "" : times >= 1.15 ? `${times.toFixed(1)}× a normal week` : times <= 0.85 ? "quieter than a normal week" : "about normal for this week";
+    if (d.v == null) { showTip(`<div class="t-head">Week of ${weekDate(d.w)} ${d.year}</div><div class="sub">Not in the data yet: ${d.year} runs up to ${c.partial ? c.partial.through : "the latest download"}.</div>`, e); return; }
     showTip(`<div class="t-head">Week of ${weekDate(d.w)} ${d.year}</div><div class="t-val">${d.v < 1 ? "No fires" : `${fmt(d.v)} hotspots`}</div>
       ${d.v >= 1 ? `<div class="sub">likely ${fmt(lo)} to ${fmt(hi)} · ${compare}</div>` : ""}${z > 3 ? `<span class="t-tag">Unusually busy week</span><br>` : ""}
       <span class="sub">${c.calendar.observed[d.r] ? "Seen by VIIRS" : "Rebuilt from the older MODIS satellite"}</span>`, e);
@@ -185,14 +190,17 @@ const App = (() => {
     const wk = d3.range(52);
     svg.append("path").datum(wk).attr("fill", dark() ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)").attr("d", d3.area().x((w) => x(w)).y0((w) => y(c.p10[w])).y1((w) => y(c.p90[w])).curve(d3.curveMonotoneX));
     svg.append("path").datum(wk).attr("fill", "none").attr("stroke", css("--label-3")).attr("stroke-width", 2).attr("d", d3.line().x((w) => x(w)).y((w) => y(c.median[w])).curve(d3.curveMonotoneX));
-    if (ri >= 0) svg.append("path").datum(wk).attr("fill", "none").attr("stroke", css("--accent")).attr("stroke-width", 2.6).attr("d", d3.line().x((w) => x(w)).y((w) => y(vals[w])).curve(d3.curveMonotoneX));
+    if (ri >= 0) svg.append("path").datum(wk).attr("fill", "none").attr("stroke", css("--accent")).attr("stroke-width", 2.6).attr("d", d3.line().defined((w) => vals[w] != null).x((w) => x(w)).y((w) => y(vals[w])).curve(d3.curveMonotoneX));
   }
 
   function renderAnnual() {
     const el = $("annual");
     d3.select(el).selectAll("*").remove();
     if (!$("expert").open || !state.current) return;
-    const a = state.current.annual, years = state.current.years, raw = state.annualMode === "raw";
+    // complete years only: a running year's total so far would read as a drop
+    const part = state.current.partial, all = state.current.years, keep = all.map((y, i) => i).filter((i) => !part || all[i] !== part.year);
+    const a = Object.fromEntries(Object.entries(state.current.annual).map(([k, v]) => [k, keep.map((i) => v[i])]));
+    const years = keep.map((i) => all[i]), raw = state.annualMode === "raw";
     const W = el.clientWidth || 520, H = 260, m = { t: 12, r: 8, b: 24, l: 44 };
     const x = d3.scaleBand().domain(years).range([m.l, W - m.r]).padding(0.2);
     const y = d3.scaleLinear().domain([0, d3.max(raw ? [...a.naive, ...a.modis] : [...a.naive, ...a.hi]) * 1.05 || 1]).nice().range([H - m.b, m.t]);
@@ -384,7 +392,7 @@ const App = (() => {
   const TOURS = {
     "fires-history": [
       { at: ".products", mood: "happy", say: "This is GeoFlare. Two apps, one place: <strong>Fires</strong> for the past and the present, <strong>Air</strong> for your health." },
-      { at: ".fnav", mood: "think", say: "<strong>Past</strong> holds the history and the 2025 archive. <strong>Now</strong> holds today's fires and the next four weeks." },
+      { at: ".fnav", mood: "think", say: "<strong>Past</strong> holds the history and the archive of every fire in 2026 and 2025. <strong>Now</strong> holds today's fires and the next four weeks." },
       { at: '.pane[data-pane="history"] .hero', mood: "happy", say: "Pick a place. I'll try the <strong>Nile Delta</strong>, close to home!", run: () => loadArea(PLACES[0]) },
       { at: "#dash-flick", mood: "proud", say: "Whenever you pick a place, I'll sum it up for you up here." },
       { at: "#calendar-card", mood: "wow", say: "Every square is one week since 2003. Tap one and the map shows that week." },

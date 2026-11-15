@@ -25,6 +25,7 @@ None of the data is in git. Some files are bigger than GitHub allows, and all of
 | FIRMS yearly country archives, about 9.6 GB | GeoFlare pipeline | `firms_archive/zips/` next to `geoflare/` (or `FIRMS_ARCHIVE_DIR`) | `python -m pipeline.download` |
 | Harmonized record, about 320 MB | GeoFlare | `geoflare/data/product/` (or `EMBER_DATA_DIR`) | `python -m pipeline.aggregate` then `python -m pipeline.build` |
 | Leaderboard | GeoFlare | `geoflare/data/product/rankings.json` | `python -m pipeline.rankings` (needs `cleaned_data/cleaned_master_fires.csv`; downloads `geoflare/data/ref/countryInfo.txt` from [GeoNames](https://download.geonames.org/export/dump/countryInfo.txt) by itself the first time) |
+| The running year (2026 so far) in the record | GeoFlare (History, story, Air) | added to `geoflare/data/product/` | `python -m pipeline.extend` (needs `cleaned_data/cleaned_master_fires_2026.csv`; NOAA-20 in Suomi NPP units, complete weeks only, no retraining) |
 | Fires vs factories findings | GeoFlare (Air story) | `geoflare/data/product/findings.json` | `python -m pipeline.findings` (needs only the harmonized record) |
 
 Live fires (NASA FIRMS), air quality, wind and place search (Open-Meteo) are fetched at run time and need internet access. Live fires are cached in `geoflare/data/live/`.
@@ -88,6 +89,7 @@ cd geoflare
 .venv\Scripts\python -m pipeline.aggregate
 .venv\Scripts\python -m pipeline.build
 .venv\Scripts\python -m pipeline.rankings
+.venv\Scripts\python -m pipeline.extend
 .venv\Scripts\python -m pipeline.findings
 ```
 

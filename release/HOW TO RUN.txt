@@ -1,0 +1,38 @@
+GeoFlare v1.0  -  Team FLARECRAFT (Assiut, Egypt)  -  NASA Space Apps 2026
+Challenge: Harmonization of MODIS and VIIRS Hot Spots
+
+HOW TO RUN (Windows 10 or 11, 64-bit)
+
+  1. Double-click  GeoFlare.exe  (the Flick icon).
+  2. Flick's window opens and loads GeoFlare (about 30 seconds).
+  3. Flick asks "What do you want to open?": GeoFlare, the presentation, or the severity map.
+  4. To stop, press "Stop GeoFlare" in Flick's window (or close the GeoFlare window in the taskbar).
+
+  Nothing is installed. Everything GeoFlare needs is inside this folder.
+
+IF WINDOWS SHOWS A BLUE "Windows protected your PC" BOX
+  Click "More info", then "Run anyway". (The program is not signed, so Windows asks once.)
+  Or double-click  "Run GeoFlare (backup).cmd"  instead: it does the same thing.
+
+WHAT TO OPEN
+  GeoFlare (story, Fires, Air) ...... http://127.0.0.1:8010/
+  The presentation .................. http://127.0.0.1:8010/present/
+  The classic severity map .......... http://127.0.0.1:8000/
+
+INTERNET
+  Works without internet: the fire history 2003-2026, the 2025 and 2026 archives, the AI severity model,
+  the presentation.
+  Needs internet: today's live fires, air quality, town search, and the map backgrounds.
+
+ASK FLICK (optional)
+  The chat needs a free Groq key (console.groq.com). Paste it into "Ask Flick key (optional).txt"
+  and start GeoFlare again. Without a key, everything else works and the chat button is hidden.
+
+IF SOMETHING GOES WRONG
+  "Port 8000 (or 8010) is used by another program": close that program, or restart the computer.
+  Anything else: the details are in app\logs.
+
+THE DATA
+  NASA FIRMS (MODIS and VIIRS active fires) and NASA POWER (weather). Fire history 2003-2025 is harmonized
+  into VIIRS units; 2026 runs to 11 November (history) and 13 November (archive). Air quality and wind: Open-Meteo
+  (Copernicus CAMS). Source code: github.com/GEODATA-NASA/FLARECRAFT

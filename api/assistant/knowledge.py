@@ -23,8 +23,9 @@ Each row of fire_events is one satellite hot-spot detection, not one fire. A lar
 - scan, track: pixel size in km along scan and along track. MODIS pixels are about 1 km at nadir and grow toward the swath edge; VIIRS pixels are about 375 m. Larger pixels integrate more fire, so FRP per detection is higher for MODIS.
 - confidence: detection confidence 0-100. VIIRS reports low/nominal/high, stored here as 25/50/100.
 - daynight: D for day, N for night overpass.
-- type: inferred hot-spot type: 0 presumed vegetation fire, 1 active volcano, 2 other static land source, 3 offshore.
-- satellite_source: modis (Terra and Aqua), viirs_j1 (NOAA-20), viirs_suomi (Suomi NPP).
+- type: inferred hot-spot type: 0 presumed vegetation fire, 1 active volcano, 2 other static land source, 3 offshore. The near-real-time months of 2026 (VIIRS from August, MODIS from September) come without a type; there it is labelled from the static-source spots seen earlier in the 2026 archive (about 92% of static sources caught, 0.6% of fires mislabelled).
+- satellite_source: modis (Terra and Aqua), viirs_j1 (NOAA-20), viirs_j2 (NOAA-21, 2026), viirs_suomi (Suomi NPP, 2025).
+- Yearly archives: 2025 (full year) and 2026 (1 January to the latest download; the default).
 
 # Data dictionary: weather (NASA POWER)
 Daily values on the POWER grid (0.5 x 0.625 degrees, thinned to about 1 x 1.25 degrees near fires).

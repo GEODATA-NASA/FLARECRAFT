@@ -30,6 +30,9 @@ if errorlevel 1 goto :pipeline_failed
 echo [4/5] Running pipeline (rankings)...
 "%GEOFLARE_PY%" -m pipeline.rankings
 if errorlevel 1 goto :pipeline_failed
+rem Optional: adds the running year (cleaned_master_fires_<year>.csv from the GeoData pipeline) to the record.
+"%GEOFLARE_PY%" -m pipeline.extend
+if errorlevel 1 echo No running year found; the record ends with the last full year.
 popd
 
 echo [5/5] Pipeline finished successfully! Starting GeoFlare and servers...

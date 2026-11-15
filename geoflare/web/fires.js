@@ -1,11 +1,14 @@
 /* GeoFlare Fires: which fires could turn severe. Three parts:
    Today (live fires scored by the GeoData AI model and graded against measured fire power),
-   Next 4 weeks (calendar x model outlook), and Explore the archive (every 2025 fire, filters,
+   Next 4 weeks (calendar x model outlook), and Explore the archive (every 2026 or 2025 fire, filters,
    score-your-own). Talks to /api/* and, through the same-origin proxy, /geodata/*. */
 const Fires = (() => {
   const $ = (id) => document.getElementById(id);
   const SUBS = ["today", "outlook", "explore"];
-  const SOURCES = { modis: "MODIS", viirs_j1: "VIIRS NOAA-20", viirs_suomi: "VIIRS Suomi NPP" };
+  const SOURCES = { modis: "MODIS", viirs_j1: "VIIRS NOAA-20", viirs_j2: "VIIRS NOAA-21", viirs_suomi: "VIIRS Suomi NPP" };
+  // Satellites in each yearly archive: Suomi NPP delivered nothing in 2026 and NOAA-21 joined.
+  // shortcut: hard-coded per year, add a line when a new yearly archive is cleaned.
+  const YEAR_SOURCES = { 2025: ["modis", "viirs_j1", "viirs_suomi"], 2026: ["modis", "viirs_j1", "viirs_j2"] };
   const PIXELS = { viirs: { scan: 0.38, track: 0.36 }, modis: { scan: 1.0, track: 1.0 } };
   const FEATURES = { brightness: "How hot the pixel looks", confidence: "Satellite's confidence", scan: "Pixel width", track: "Pixel height",
     acq_time: "Time of day", longitude: "East-west position", latitude: "North-south position", day_of_year: "Time of year",
@@ -71,8 +74,8 @@ const Fires = (() => {
 
     <div class="pane" data-sub="explore" hidden>
       <div class="hero">
-        <p class="chapter">GeoFlare Fires · Past · 2025 archive</p>
-        <h1>Look up any fire from <span id="fx-year">2025</span></h1>
+        <p class="chapter">GeoFlare Fires · Past · Archive</p>
+        <h1>Look up any fire from <span id="fx-year">2026</span></h1>
         <p class="lede">Every fire NASA's satellites recorded, scored by the model. Pick dates and satellites, or tap the map to score a fire of your own.</p>
       </div>
       <div class="flick-card" data-flick></div>
@@ -80,6 +83,7 @@ const Fires = (() => {
       <div id="fx-body">
         <section class="card fx-filters" id="fx-filters">
           <form id="fx-form" autocomplete="off">
+            <div class="fx-field"><span>Year</span><div class="toggle" id="fx-years"></div></div>
             <label class="fx-field"><span>From</span><input type="date" id="fx-start" required></label>
             <label class="fx-field"><span>To</span><input type="date" id="fx-end" required></label>
             <div class="fx-field"><span>Satellites</span>
@@ -252,9 +256,22 @@ const Fires = (() => {
   }
 
   /* ================================================================ explore: archive */
-  const checkedSources = () => [...document.querySelectorAll('input[name="fx-source"]:checked')].map((i) => i.value);
+  const checkedSources = () => [...document.querySelectorAll('input[name="fx-source"]:checked')].filter((i) => !i.closest("label").hidden).map((i) => i.value);
+  const archiveYear = () => Number(($("fx-years").querySelector("button.on") || {}).dataset?.year) || null;
+  function yearBounds(year) {   // the year's days that the loaded data covers
+    const r = (state.health && state.health.fire_date_range) || {}, lo = `${year}-01-01`, hi = `${year}-12-31`;
+    return [r.start_date && r.start_date > lo ? r.start_date : lo, r.end_date && r.end_date < hi ? r.end_date : hi];
+  }
+  function applyYear() {
+    const year = archiveYear();
+    if (!year) return;
+    const [lo, hi] = yearBounds(year), sources = YEAR_SOURCES[year];
+    ["fx-start", "fx-end"].forEach((id) => { $(id).min = lo; $(id).max = hi; });
+    $("fx-year").textContent = hi.slice(5) === "12-31" ? String(year) : `${year} so far`;
+    document.querySelectorAll('input[name="fx-source"]').forEach((i) => { i.closest("label").hidden = Boolean(sources) && !sources.includes(i.value); });
+  }
   const colorMode = () => ($("fx-color").querySelector("button.on") || {}).dataset?.mode || "severity";
-  const srcColor = (src) => ({ modis: UI.css("--fx-src-modis"), viirs_j1: UI.css("--fx-src-j1"), viirs_suomi: UI.css("--fx-src-snpp") }[src] || UI.css("--label-3"));
+  const srcColor = (src) => ({ modis: UI.css("--fx-src-modis"), viirs_j1: UI.css("--fx-src-j1"), viirs_j2: UI.css("--fx-src-j1"), viirs_suomi: UI.css("--fx-src-snpp") }[src] || UI.css("--label-3"));
   function featureColor(p, mode) {
     if (mode === "probability") return d3.interpolateRgb(UI.css("--mild"), UI.css("--hot"))(Math.max(0, Math.min(1, p.high_frp_probability ?? 0)));
     if (mode === "frp") return UI.ramp()(Math.max(0.1, Math.min(1, Math.log10(1 + (p.frp || 0)) / 3)));
@@ -265,7 +282,7 @@ const Fires = (() => {
     const el = $("fx-legend");
     if (mode === "probability") el.innerHTML = `Chance of a severe fire: <span class="fx-ramp" style="background:linear-gradient(90deg,${UI.css("--mild")},${UI.css("--hot")})"></span> 0% to 100%`;
     else if (mode === "frp") el.innerHTML = `Measured power: <span class="fx-ramp" style="background:linear-gradient(90deg,${UI.css("--cal-ramp")})"></span> 1 to 1,000+ MW`;
-    else if (mode === "source") el.innerHTML = Object.entries(SOURCES).map(([k, v]) => `<span class="dot" style="background:${srcColor(k)}"></span>${v}`).join(" ");
+    else if (mode === "source") el.innerHTML = Object.entries(SOURCES).filter(([k]) => !YEAR_SOURCES[archiveYear()] || YEAR_SOURCES[archiveYear()].includes(k)).map(([k, v]) => `<span class="dot" style="background:${srcColor(k)}"></span>${v}`).join(" ");
     else el.innerHTML = `<span class="dot hot"></span>Model says severe <span class="dot mild"></span>Model says mild`;
   }
 
@@ -284,8 +301,14 @@ const Fires = (() => {
     $("fx-body").hidden = false; $("fx-offline").hidden = true;
     const range = state.health.fire_date_range || {};
     if (range.end_date) {
-      ["fx-start", "fx-end", "fs-date"].forEach((id) => { $(id).min = range.start_date; $(id).max = range.end_date; });
-      $("fx-year").textContent = range.start_date.slice(0, 4) === range.end_date.slice(0, 4) ? range.end_date.slice(0, 4) : `${range.start_date.slice(0, 4)}–${range.end_date.slice(0, 4)}`;
+      $("fs-date").min = range.start_date; $("fs-date").max = range.end_date;
+      const first = Number(range.start_date.slice(0, 4)), last = Number(range.end_date.slice(0, 4)), keep = archiveYear();
+      const years = Array.from({ length: last - first + 1 }, (_, i) => last - i);   // newest first: the latest year is the default
+      $("fx-years").innerHTML = years.map((y) => `<button type="button" data-year="${y}" class="${y === (years.includes(keep) ? keep : last) ? "on" : ""}">${y}</button>`).join("");
+      $("fx-years").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
+        $("fx-years").querySelectorAll("button").forEach((o) => o.classList.toggle("on", o === b));
+        resetFilters(); loadFires();
+      }));
     }
     resetFilters();
     const map = UI.getMap("fx-map", [[20, 15], 2]);
@@ -298,7 +321,8 @@ const Fires = (() => {
     loadModel();
   }
   function resetFilters() {
-    const end = (state.health && state.health.fire_date_range.end_date) || new Date().toISOString().slice(0, 10);
+    applyYear();
+    const end = archiveYear() ? yearBounds(archiveYear())[1] : (state.health && state.health.fire_date_range.end_date) || new Date().toISOString().slice(0, 10);
     $("fx-end").value = end; $("fx-start").value = addDays(end, -6);
     if (!$("fs-date").value) $("fs-date").value = end;
     document.querySelectorAll('input[name="fx-source"]').forEach((i) => { i.checked = true; });

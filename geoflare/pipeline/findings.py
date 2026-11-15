@@ -50,12 +50,19 @@ def main():
     con.register("cells", pd.read_parquet(PRODUCT_DIR / "cells.parquet")[["cell", "country"]])
     first = con.execute(f"SELECT MIN(year) FROM '{cw}' WHERE viirs IS NOT NULL").fetchall()[0][0]
     last = con.execute(f"SELECT MAX(year) FROM '{cw}' WHERE viirs IS NOT NULL").fetchall()[0][0]
-    years = last - first + 1
+    part = json.loads((PRODUCT_DIR / "report.json").read_text()).get("partial")
+    part = part if part and part["year"] == last else None
+    last_full = last - 1 if part else last
+    # Rhythm and proximity use every week seen, the running year's complete weeks included, so they average per
+    # week present; the year-to-year trends use complete years only.
+    weeks_seen = con.sql(f"SELECT week, COUNT(DISTINCT year) AS n FROM '{cw}' WHERE year >= {first} AND viirs IS NOT NULL GROUP BY week").df()
+    con.register("weeks_seen", weeks_seen)
+    total_weeks = float(weeks_seen.n.sum())
 
     # 1. Rhythm
     weekly = con.sql(f"""
-        SELECT week, SUM(viirs)::DOUBLE / {years} AS fires, SUM(viirs_ind)::DOUBLE / {years} AS industry
-        FROM '{cw}' WHERE year >= {first} GROUP BY week ORDER BY week""").df()
+        SELECT w.week, SUM(w.viirs)::DOUBLE / ANY_VALUE(s.n) AS fires, SUM(w.viirs_ind)::DOUBLE / ANY_VALUE(s.n) AS industry
+        FROM '{cw}' w JOIN weeks_seen s USING (week) WHERE w.year >= {first} GROUP BY w.week ORDER BY w.week""").df()
     rhythm = {
         "fires_peak_to_trough": float(weekly.fires.max() / max(weekly.fires.min(), 1e-9)),
         "industry_peak_to_trough": float(weekly.industry.max() / max(weekly.industry.min(), 1e-9)),
@@ -73,7 +80,7 @@ def main():
             for dk in (-1, 0, 1):
                 near.add((r + dr) * N_COLS + (k + dk) % N_COLS)
     fires = con.sql(f"""
-        SELECT w.cell, c.country, SUM(w.viirs)::DOUBLE / {years} AS per_year
+        SELECT w.cell, c.country, SUM(w.viirs)::DOUBLE / {total_weeks} * 52 AS per_year
         FROM '{cw}' w JOIN cells c USING (cell) WHERE w.year >= {first} GROUP BY ALL HAVING SUM(w.viirs) > 0""").df()
     fires["near"] = fires.cell.isin(near)
     rows = []
@@ -96,7 +103,7 @@ def main():
     # 3. Trends
     yearly = con.sql(f"""
         SELECT c.country, w.year, SUM(w.viirs)::DOUBLE AS fires, SUM(w.viirs_ind)::DOUBLE AS industry
-        FROM '{cw}' w JOIN cells c USING (cell) WHERE w.year >= {first} GROUP BY ALL""").df()
+        FROM '{cw}' w JOIN cells c USING (cell) WHERE w.year BETWEEN {first} AND {last_full} GROUP BY ALL""").df()
     world = yearly.groupby("year")[["fires", "industry"]].sum().sort_index()
     per_country = []
     for country, g in yearly[yearly.country.notna() & (yearly.country != "?")].groupby("country"):
@@ -105,8 +112,15 @@ def main():
             r = corr(g.fires.diff().dropna(), g.industry.diff().dropna())
             if r is not None:
                 per_country.append(r)
+    so_far = None
+    if part:   # the running year against the same weeks of the year before
+        ytd = con.sql(f"""SELECT year, SUM(viirs)::DOUBLE AS fires, SUM(viirs_ind)::DOUBLE AS industry FROM '{cw}'
+                          WHERE year IN ({last_full}, {last}) AND week <= {part['last_week']} GROUP BY year""").df().set_index("year")
+        so_far = {"year": int(last), "through": part["through"], "compared_with": int(last_full),
+                  "fires_change": float(ytd.fires[last] / ytd.fires[last_full] - 1),
+                  "industry_change": float(ytd.industry[last] / ytd.industry[last_full] - 1)}
     trends = {
-        "years": [int(first), int(last)],
+        "years": [int(first), int(last_full)], "so_far": so_far,
         "world_change_correlation": corr(world.fires.diff().dropna(), world.industry.diff().dropna()),
         "countries": len(per_country),
         "median_country_correlation": float(np.median(per_country)) if per_country else None,
@@ -122,10 +136,13 @@ def main():
                       f"{proximity['median_ratio']:.1f}x the fires of other burning cells in the same country (median), "
                       f"and {proximity['share_countries_more_fire_near_industry'] * 100:.0f}% of those countries had more fire near industry. "
                       "Together is not the same as caused: farms, roads and towns cluster near industry too.") if proximity["median_ratio"] else "Not enough data.",
-        "trends": (f"From {first} to {last}, the world's year-to-year changes in fires and industrial heat show "
+        "trends": (f"From {first} to {last_full}, the world's year-to-year changes in fires and industrial heat show "
                    f"{strength(trends['world_change_correlation'])} (r = {trends['world_change_correlation']:.2f}); "
                    f"across {trends['countries']} countries the median is r = {trends['median_country_correlation']:.2f}.") if trends["median_country_correlation"] is not None else "Not enough data.",
     }
+    if so_far:
+        verdict["so_far"] = (f"{so_far['year']} so far (to {so_far['through']}): fires {so_far['fires_change'] * 100:+.0f}% and factory and flare heat "
+                             f"{so_far['industry_change'] * 100:+.0f}% against the same weeks of {so_far['compared_with']}.")
     OUT.write_text(json.dumps({"rhythm": rhythm, "proximity": proximity, "trends": trends, "verdict": verdict}), encoding="utf-8")
     for k, v in verdict.items():
         print(f"{k}: {v}")

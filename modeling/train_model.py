@@ -17,7 +17,7 @@ Environment switches (see README):
 * ``FORCE_RETRAIN`` (default 0): retrain even when the artifact already exists.
 * ``CATBOOST_ITERATIONS`` / ``CATBOOST_DEPTH`` / ``CATBOOST_LEARNING_RATE``
   (500 / 6 / 0.05): boosting rounds, tree depth, and learning rate.
-* ``CATBOOST_ITERATIONS`` (1000, a cap) with ``CATBOOST_EARLY_STOPPING_ROUNDS`` (50): training stops when
+* ``CATBOOST_ITERATIONS`` (2500, a cap) with ``CATBOOST_EARLY_STOPPING_ROUNDS`` (50): training stops when
   validation AUC has not improved for that many rounds and keeps the best iteration. The validation slice is
   the last ``VALIDATION_SHARE`` (0.15) of the training dates; the test period is never used for stopping.
 * ``CATBOOST_BORDER_COUNT`` (0 = default): number of feature-value bins.
@@ -71,7 +71,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from config import CLEANED_DATA_DIR, DB_CONFIG
+from config import CLEANED_DATA_DIR, CLEANED_FIRE_FILES, DB_CONFIG
 from modeling.features import DERIVED_FEATURES, add_derived_features
 from modeling.risk import apply_risk, fit_risk, level_table
 
@@ -84,7 +84,7 @@ MODEL_ARTIFACT_PATH = Path(
 )
 REQUIRE_WEATHER_MATCH = os.getenv("REQUIRE_WEATHER_MATCH", "1").lower() not in {"0", "false", "no"}
 TRAINING_SOURCE = os.getenv("TRAINING_SOURCE", "db").strip().lower()
-CATBOOST_ITERATIONS = int(os.getenv("CATBOOST_ITERATIONS", "1000"))  # a cap: early stopping decides
+CATBOOST_ITERATIONS = int(os.getenv("CATBOOST_ITERATIONS", "2500"))  # a cap: early stopping decides (1,203 rounds on 2025 + 2026)
 CATBOOST_DEPTH = int(os.getenv("CATBOOST_DEPTH", "6"))
 CATBOOST_LEARNING_RATE = float(os.getenv("CATBOOST_LEARNING_RATE", "0.05"))
 CATBOOST_L2_LEAF_REG = float(os.getenv("CATBOOST_L2_LEAF_REG", "3.0"))
@@ -348,17 +348,22 @@ def load_fire_chunks(engine, schema):
 
 def csv_fire_columns():
     """Column map for the CSV training source (mirrors ``table_columns``)."""
-    header = pd.read_csv(csv_fire_path(), nrows=0).columns
+    header = pd.read_csv(csv_fire_paths()[0], nrows=0).columns
     return {str(name).strip().lower(): name for name in header}
 
 
-def csv_fire_path():
+def csv_fire_paths():
+    """The sample file when present; otherwise FIRES_CSV_FILE, or every cleaned yearly file (2025, 2026, ...).
+    Point FIRES_SAMPLE_FILE at a missing path to train from the full yearly files."""
     sample = Path(os.getenv("FIRES_SAMPLE_FILE", Path(CLEANED_DATA_DIR) / "fires_sample.csv"))
-    full = Path(os.getenv("FIRES_CSV_FILE", Path(CLEANED_DATA_DIR) / "cleaned_master_fires.csv"))
-    path = sample if sample.is_file() else full
-    if not path.is_file():
-        raise FileNotFoundError(f"No cleaned fire CSV found: {sample} or {full}")
-    return path
+    if sample.is_file():
+        return [sample]
+    override = os.getenv("FIRES_CSV_FILE")
+    paths = [Path(override)] if override else [Path(CLEANED_DATA_DIR) / Path(path).name for path in CLEANED_FIRE_FILES.values()]
+    paths = [path for path in paths if path.is_file()]
+    if not paths:
+        raise FileNotFoundError(f"No cleaned fire CSV found: {sample} or the cleaned yearly files in {CLEANED_DATA_DIR}")
+    return paths
 
 
 def load_fire_chunks_csv():
@@ -370,7 +375,8 @@ def load_fire_chunks_csv():
     selected = [columns[n] for n in required] + [
         columns[n] for n in ("brightness", "confidence", "scan", "track", "type", "acq_time") if n in columns
     ]
-    for chunk in pd.read_csv(csv_fire_path(), usecols=selected, chunksize=FIRE_CHUNK_SIZE, low_memory=False):
+    chunks = (chunk for path in csv_fire_paths() for chunk in pd.read_csv(path, usecols=selected, chunksize=FIRE_CHUNK_SIZE, low_memory=False))
+    for chunk in chunks:
         chunk.columns = [str(c).strip().lower() for c in chunk.columns]
         yield chunk
 

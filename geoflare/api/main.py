@@ -130,18 +130,28 @@ def export(bbox: str | None = None, country: str | None = None):
 @app.get("/api/intro")
 def intro():
     """Everything the opening story needs, computed once: a year of weekly fire frames on a 1 degree
-    grid, the global raw-vs-harmonized record, and the brightest industrial heat sources."""
+    grid, the global raw-vs-harmonized record, and the brightest industrial heat sources.
+
+    The year of frames is the latest one, even while it is still running (2026 so far, from pipeline.extend);
+    the year-by-year record, the jump and the industrial sites use complete years."""
     if store.intro_cache is None:
         frame, _, _ = store.weekly()
         record = analyse(frame, store.report, store.viirs_start)
         year = max(record["climatology_years"] or [store.last_year])
+        part = store.partial   # the running year: chapter 1 shows it; the year-by-year record keeps complete years
+        shown = part["year"] if part else year
+        keep = [i for i, y in enumerate(record["years"]) if not part or y != part["year"]]
+        annual = {k: [record["annual"][k][i] for i in keep] for k in ("naive", "harmonized", "lo", "hi", "modis", "viirs")}
         store.intro_cache = {
-            "year": year,
-            "frames": store.intro_frames(year),
+            "year": shown,
+            "frames": store.intro_frames(shown),
+            "year_total": record["annual"]["harmonized"][record["years"].index(shown)],
+            "year_through": part["through"] if part else None,     # set while the year is still running
+            "record_year": year,
             "industrial": store.industrial_sites(year),
-            "annual": {"years": record["years"], **{k: record["annual"][k] for k in ("naive", "harmonized", "lo", "hi", "modis", "viirs")}},
+            "annual": {"years": [record["years"][i] for i in keep], **annual},
             "jump": record["jump"], "trends": record["trends"],
-            "calendar": {"years": record["years"], "values": record["calendar"]["values"], "observed": record["calendar"]["observed"]},
+            "calendar": {"years": [record["years"][i] for i in keep], "values": [record["calendar"]["values"][i] for i in keep], "observed": [record["calendar"]["observed"][i] for i in keep]},
             "global_ratio": store.report.get("global_ratio"),
             "validation": summarize_validation(store.report),
             "viirs_start": store.viirs_start,

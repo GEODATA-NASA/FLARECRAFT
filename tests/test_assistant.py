@@ -151,6 +151,7 @@ def test_tool_executor_validation_and_outputs(runtime):
     tools = ToolExecutor(runtime, KnowledgeBase.from_project(runtime.settings.frontend_dir.parent))
     coverage = tools.run("get_data_coverage", {})
     assert coverage["fire_date_range"] == {"start": "2025-01-02", "end": "2025-03-16"}
+    assert coverage["archives"] == [{"year": 2025, "start": "2025-01-02", "end": "2025-03-16"}] and coverage["default_year"] == 2025
     listed = tools.run("list_fires", {"start_date": "2025-01-01", "end_date": "2025-12-31", "limit": 2, "include_predictions": True})
     assert listed["count"] == 2 and listed["fires"][0]["frp"] == 250.0
     assert 0 <= listed["fires"][0]["high_frp_probability"] <= 1
@@ -160,6 +161,16 @@ def test_tool_executor_validation_and_outputs(runtime):
         tools.run("get_fire_statistics", {"start_date": "2025-01-01", "end_date": "2025-01-31", "bbox": [10, 5, -10, 6]})
     with pytest.raises(ToolError):
         tools.run("delete_everything", {})
+
+
+def test_sampled_counts_come_with_full_estimates(runtime, monkeypatch):
+    tools = ToolExecutor(runtime, KnowledgeBase.from_project(runtime.settings.frontend_dir.parent))
+    real = runtime.repository.health
+    monkeypatch.setattr(runtime.repository, "health", lambda: {**real(), "is_subset": True, "sample_fraction": 0.5})
+    out = tools.run("get_fire_statistics", {"start_date": "2025-01-01", "end_date": "2025-12-31"})
+    assert out["estimated_full_total"] == 2 * out["total_detections"]
+    assert out["estimated_full_severe"] == 2 * out["severe_detections"]
+    assert out["sample_fraction"] == 0.5
 
 
 def test_documentation_search_finds_relevant_sections(runtime):

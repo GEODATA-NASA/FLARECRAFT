@@ -43,7 +43,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from config import CLEANED_DATA_DIR, FIRE_FILES, RAW_DATA_DIR, WEATHER_FILE  # noqa: E402
+from config import CLEANED_FIRE_FILES, FIRE_ARCHIVES, RAW_DATA_DIR, WEATHER_FILE  # noqa: E402
 
 LOGGER = logging.getLogger("geodata.integration.nasa_power")
 
@@ -93,14 +93,14 @@ def _validate_steps() -> None:
 
 
 def _fire_sources() -> list[Path]:
-    cleaned = Path(CLEANED_DATA_DIR) / "cleaned_master_fires.csv"
-    if cleaned.is_file():
-        return [cleaned]
-    raw = [Path(path) for path in FIRE_FILES.values() if Path(path).is_file()]
+    cleaned = [Path(path) for path in CLEANED_FIRE_FILES.values() if Path(path).is_file()]
+    if cleaned:
+        return cleaned
+    raw = [Path(path) for sources in FIRE_ARCHIVES.values() for paths in sources.values() for path in paths if Path(path).is_file()]
     if not raw:
         raise FileNotFoundError(
             "Grid weather needs the fire data to know where to download. "
-            f"Neither {cleaned} nor the raw FIRMS archives were found."
+            "Neither the cleaned fire files nor the raw FIRMS archives were found."
         )
     return raw
 

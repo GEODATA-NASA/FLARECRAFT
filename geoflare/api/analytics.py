@@ -33,7 +33,14 @@ def harmonize(frame, viirs_start):
     """VIIRS-equivalent weekly activity: observed S-NPP from viirs_start, reconstructed before."""
     observed = frame.year >= viirs_start
     value = np.where(observed, frame.viirs.fillna(0), frame.recon)
+    value[frame.modis.isna().to_numpy()] = np.nan   # weeks of the running year not seen yet
     return pd.Series(value, index=frame.index), observed
+
+
+def nullable(grid, digits=2):
+    """2-D values for JSON, with None for weeks that have no data yet."""
+    values = np.round(np.asarray(grid, dtype="float64"), digits)
+    return [[None if np.isnan(v) else float(v) for v in row] for row in values]
 
 
 def season(curve):
@@ -88,7 +95,9 @@ def analyse(frame, report, viirs_start, today=None):
     frame["hi"] = np.where(observed, obs_hi, hi)
 
     grid = frame.pivot(index="year", columns="week", values="harm").reindex(years)
-    complete = [y for y in years if (frame[frame.year == y].modis.sum() > 0 or frame[frame.year == y].viirs.fillna(0).sum() > 0)]
+    # A year counts for "normal", trends and the jump only when all 52 weeks are in (not the running year).
+    complete = [y for y in years if frame[frame.year == y].harm.notna().all()
+                and (frame[frame.year == y].modis.sum() > 0 or frame[frame.year == y].viirs.fillna(0).sum() > 0)]
     clim_years = [y for y in complete if y < (today or dt.date.today()).year]
     clim = grid.loc[clim_years] if clim_years else grid
     median = clim.median().to_numpy()
@@ -119,7 +128,9 @@ def analyse(frame, report, viirs_start, today=None):
 
     # Unusual months: monthly totals against that month's climatology.
     frame["month"] = np.minimum(frame.week * 12 // 52, 11)
-    monthly = frame.groupby(["year", "month"]).agg(harm=("harm", "sum"), lo=("lo", "sum"), hi=("hi", "sum")).reset_index()
+    monthly = frame.groupby(["year", "month"]).agg(harm=("harm", "sum"), lo=("lo", "sum"), hi=("hi", "sum"),
+                                                   gap=("harm", lambda s: bool(s.isna().any()))).reset_index()
+    monthly = monthly[~monthly.gap]   # a month of the running year counts once all its weeks are in
     mclim = monthly[monthly.year.isin(clim_years)].groupby("month").harm.agg(["median", lambda s: (s - s.median()).abs().median()])
     mclim.columns = ["median", "mad"]
     monthly = monthly.join(mclim, on="month")
@@ -130,7 +141,7 @@ def analyse(frame, report, viirs_start, today=None):
 
     season_clim = season(median)
     per_year = {}
-    for y in years:
+    for y in complete:
         s = season(grid.loc[y].to_numpy())
         if s:
             per_year[int(y)] = {k: s[k] for k in ("start", "peak", "end")}
@@ -160,14 +171,15 @@ def analyse(frame, report, viirs_start, today=None):
         "viirs_start": int(viirs_start),
         "climatology_years": [int(y) for y in clim_years],
         "calendar": {
-            "values": np.round(grid.fillna(0).to_numpy(), 2).tolist(),
+            "values": nullable(grid),
             "observed": [bool(y >= viirs_start) for y in years],
-            "anomaly": np.round(((grid - median) / (1.4826 * mad + np.sqrt(median + 1))).fillna(0).to_numpy(), 2).tolist(),
+            "anomaly": nullable((grid - median) / (1.4826 * mad + np.sqrt(median + 1))),
         },
         "weekly": {
-            "lo": np.round(frame.pivot(index="year", columns="week", values="lo").reindex(years).fillna(0).to_numpy(), 2).tolist(),
-            "hi": np.round(frame.pivot(index="year", columns="week", values="hi").reindex(years).fillna(0).to_numpy(), 2).tolist(),
+            "lo": nullable(frame.pivot(index="year", columns="week", values="lo").reindex(years)),
+            "hi": nullable(frame.pivot(index="year", columns="week", values="hi").reindex(years)),
         },
+        "partial": report.get("partial") and {k: report["partial"][k] for k in ("year", "last_week", "through")},
         "climatology": {"median": np.round(median, 2).tolist(), "p10": np.round(p10, 2).tolist(), "p90": np.round(p90, 2).tolist()},
         "annual": {
             "harmonized": np.round(annual.harm.to_numpy(), 1).tolist(),

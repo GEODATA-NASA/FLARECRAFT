@@ -96,11 +96,15 @@ class Air:
                 GROUP BY cell, year""").df()
             frame = frame[frame.cell.isin(self.live.industrial_cells())]
             last = int(frame.year.max())
+            part = s.partial if s.partial and s.partial["year"] == last else None
             wide = frame.pivot_table(index="cell", columns="year", values="n", fill_value=0)
             weeks = frame[frame.year == last].set_index("cell").weeks
             row, col = np.divmod(wide.index.to_numpy(), N_COLS)
             self._sites = {
                 "last": last, "years": [int(y) for y in wide.columns], "cells": wide.index.to_numpy(),
+                # the running year shows its glow so far; trends compare complete years only
+                "complete": [int(y) for y in wide.columns if not part or y != last],
+                "weeks_in_last": part["last_week"] + 1 if part else 52, "label": f"{last} so far" if part else str(last),
                 "lat": -90 + (row + 0.5) * CELL_DEG, "lon": -180 + (col + 0.5) * CELL_DEG,
                 "glow": wide.to_numpy(), "weeks": weeks.reindex(wide.index).fillna(0).astype(int).to_numpy(),
             }
@@ -119,18 +123,19 @@ class Air:
         except Exception:  # live feed down: report the archive only
             pass
         out = []
+        n_complete = len(s["complete"])
         for i in idx:
-            series = s["glow"][i]
+            series = s["glow"][i][:n_complete]
             base = series[:3].mean() if len(series) >= 6 else None
             recent = series[-3:].mean() if len(series) >= 6 else None
             out.append({
                 "lat": round(float(s["lat"][i]), 3), "lon": round(float(s["lon"][i]), 3),
                 "km": round(float(dist[i]), 1), "bearing": round(bearing(lat, lon, s["lat"][i], s["lon"][i])),
-                "glow": int(series[last_col]), "weeks": int(s["weeks"][i]), "lit_now": int(s["cells"][i]) in lit,
+                "glow": int(s["glow"][i][last_col]), "weeks": int(s["weeks"][i]), "lit_now": int(s["cells"][i]) in lit,
                 "change": round(float(recent / base - 1), 3) if base and base >= 5 else None,
                 "series": [int(v) for v in series],
             })
-        return out, s["years"], s["last"]
+        return out, s["complete"], s["last"]
 
     def air_quality(self, lat, lon):
         key = f"aq-{lat:.1f}-{lon:.1f}"
@@ -207,7 +212,7 @@ class Air:
                         "title": VERDICTS[level][0], "line": VERDICTS[level][1]},
             "air": aq, "wind": wind, "worst": worst,
             "sites": sites[:25], "site_count": len(sites), "main_site": main, "lit_now": sum(s["lit_now"] for s in sites),
-            "years": years, "year": last, "radius_km": radius_km,
+            "years": years, "year": last, "year_label": self.sites()["label"], "weeks_in_year": self.sites()["weeks_in_last"], "radius_km": radius_km,
             "facts": facts(sites, aq, wind, worst, downwind, last, years),
             "steps": precautions(band["level"], exposure, downwind, worst),
             "errors": errors,

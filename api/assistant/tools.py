@@ -19,7 +19,7 @@ from api.serialization import frame_to_records
 
 LOGGER = logging.getLogger("geodata.api.assistant.tools")
 
-SOURCES = ["modis", "viirs_j1", "viirs_suomi"]
+SOURCES = ["modis", "viirs_j1", "viirs_j2", "viirs_suomi"]
 MAX_LIST_ROWS = 50
 
 _DATE = {"type": "string", "format": "date", "description": "YYYY-MM-DD"}
@@ -38,7 +38,7 @@ _SOURCES = {
 TOOLS = [
     {
         "name": "get_data_coverage",
-        "description": "What data is loaded: the date range of fire detections, whether the API serves the full table or a random "
+        "description": "What data is loaded: the yearly archives and their dates (the latest year is the default), whether the API serves the full table or a random "
                        "sample (and the sample fraction), weather coverage, and the backend. Call this first when the question "
                        "depends on which dates or how much data exist.",
         "strict": True,
@@ -111,10 +111,10 @@ TOOLS = [
     },
     {
         "name": "get_fire_history",
-        "description": "Fire history 2003-2025 for one country or the whole world, from GeoFlare's harmonized MODIS + VIIRS record: "
+        "description": "Fire history 2003-2026 (2026 so far) for one country or the whole world, from GeoFlare's harmonized MODIS + VIIRS record: "
                        "detections per year (in VIIRS units, with an 80% range for the years rebuilt from MODIS), the usual fire "
                        "season, the long-term trend, and the most unusual months. Use this for any question about years other "
-                       "than the one the detailed table covers, or about how fires changed over time.",
+                       "than the 2025 and 2026 archives the detailed table covers, or about how fires changed over the long run.",
         "strict": True,
         "input_schema": {
             "type": "object",
@@ -208,9 +208,16 @@ class ToolExecutor:
         health = repository.health()
         start, end = self.runtime.date_range()
         index = self.runtime.weather_index()
+        archives = [
+            {"year": year, "start": max(start, date(year, 1, 1)).isoformat(), "end": min(end, date(year, 12, 31)).isoformat()}
+            for year in range(end.year, start.year - 1, -1)
+        ] if start and end else []
         coverage = {
             "backend": repository.name,
             "fire_date_range": {"start": start.isoformat() if start else None, "end": end.isoformat() if end else None},
+            "archives": archives,
+            "default_year": archives[0]["year"] if archives else None,
+            "satellites": "2025: modis, viirs_j1 (NOAA-20), viirs_suomi (Suomi NPP). 2026: modis, viirs_j1 (NOAA-20), viirs_j2 (NOAA-21).",
             "rows_served": health.get("rows"),
             "is_random_sample": bool(health.get("is_subset")),
             "sample_fraction": health.get("sample_fraction"),
@@ -255,8 +262,10 @@ class ToolExecutor:
         if health.get("is_subset"):
             fraction = health.get("sample_fraction")
             result["is_random_sample"] = True
+            result["sample_fraction"] = fraction
             if fraction:
                 result["estimated_full_total"] = int(round(stats["total"] / fraction))
+                result["estimated_full_severe"] = int(round(stats["high_frp_count"] / fraction))   # the sample counts above are not scaled
         return result
 
     def _tool_list_fires(self, args):
@@ -308,7 +317,7 @@ class ToolExecutor:
             response = requests.get(f"{os.getenv('GEOFLARE_API', 'http://127.0.0.1:8010')}/api/calendar",
                                     params={"country": country} if country else None, timeout=60)
         except requests.RequestException as error:
-            raise ToolError("The 2003-2025 record is served by GeoFlare (port 8010), and it is not running.") from error
+            raise ToolError("The 2003-2026 record is served by GeoFlare (port 8010), and it is not running.") from error
         if response.status_code == 404:
             raise ToolError(f"Unknown country {country!r}. Use the English country name, or omit it for the whole world.")
         if not response.ok:
@@ -319,8 +328,11 @@ class ToolExecutor:
             "area": country or "whole world",
             "unit": "satellite fire detections per year in VIIRS units; not the number of fires and not burned area",
             "reconstructed_years": f"{d['years'][0]}-{d['viirs_start'] - 1} are rebuilt from MODIS (low/high is an 80% range); later years are observed by VIIRS",
-            "per_year": [{"year": y, "detections": round(v), "low": round(lo), "high": round(hi)}
+            "per_year": [{"year": y, "detections": round(v), "low": round(lo), "high": round(hi),
+                          **({"so_far_until": d["partial"]["through"]} if d.get("partial") and d["partial"]["year"] == y else {})}
                          for y, v, lo, hi in zip(d["years"], annual["harmonized"], annual["lo"], annual["hi"])],
+            **({"running_year": f"{d['partial']['year']} is still running: its total covers 1 January to {d['partial']['through']} only, "
+                                "so do not compare it with whole years; the trend and the season use complete years."} if d.get("partial") else {}),
             "fire_season": {"runs": season.get("label"), "peak": season.get("peak_label")},
             "trend": {"percent_per_decade": _round(trend["pct_per_decade"], 1), "p_value": _round(trend["p_value"], 3),
                       "statistically_significant": trend["significant"]},

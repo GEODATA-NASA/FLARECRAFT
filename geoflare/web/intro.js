@@ -467,10 +467,11 @@ const Story = (() => {
   const pct = (v) => (v == null ? "—" : `${Math.round(v * 100)}%`);
   const stats = (items) => `<div class="story-stats">${items.map(([v, k]) => `<div><strong>${v}</strong><span>${k}</span></div>`).join("")}</div>`;
   const team = [["BA", "Beshoy AbdelMaseeh"], ["BK", "Beshoy Kamal"], ["GE", "George Essam"], ["ME", "Mathew Emad"], ["SA", "Sondos Alsayed"]];
-  const yearTotal = () => (data && data.annual ? data.annual.harmonized[data.annual.years.indexOf(data.year)] : null);
+  const yearTotal = () => (data && data.year_total != null ? data.year_total : data && data.annual ? data.annual.harmonized[data.annual.years.indexOf(data.year)] : null);
+  const yearLabel = () => (data ? `${data.year}${data.year_through ? " so far" : ""}` : "One year");
   const cov = () => data && data.validation && data.validation.length ? data.band_coverage : null;
   const APPS = [
-    { view: "fires", name: "GeoFlare Fires", line: "Past: your place's fire calendar and the 2025 archive. Now: today's fires, which could turn severe, and the next four weeks." },
+    { view: "fires", name: "GeoFlare Fires", line: "Past: your place's fire calendar and every fire of 2026 and 2025. Now: today's fires, which could turn severe, and the next four weeks." },
     { view: "air", name: "GeoFlare Air", line: "Is your air safe near flares and factories, and what to do about it. Flick tells the story first." },
   ];
 
@@ -490,12 +491,12 @@ const Story = (() => {
         { mood: "think", say: "How do I know? From <strong>NASA FIRMS</strong>. Every time a satellite spots heat on the ground, it logs the place, the time and how strong it was." },
         { mood: "proud", say: "Two kinds of camera fill the archive: <strong>MODIS</strong> since 2000 and the sharper <strong>VIIRS</strong> since 2012. Everything you'll see comes from these public files." },
       ] },
-    { chapter: "Chapter 1 · A year of fire", title: () => `${data ? data.year : "One year"}, one week at a time`,
-      stats: () => (yearTotal() ? stats([[fmt(yearTotal()), `fire hotspots seen from space in ${data.year}`]]) : ""),
+    { chapter: "Chapter 1 · A year of fire", title: () => `${yearLabel()}, one week at a time`,
+      stats: () => (yearTotal() ? stats([[fmt(yearTotal()), `fire hotspots seen from space in ${yearLabel()}`]]) : ""),
       enter: () => { clearFigure(); unpoint(); fadeGlobe(1); playWeeks(); layers({ archive: 1, cx: 0.66, globe: 1, spin: 0.08 }); },
       exit: stopWeeks,
       lines: [
-        { mood: "wow", say: "These are the fires satellites saw in 2025, week by week. Watch the counter in the corner climb!" },
+        { mood: "wow", say: () => `These are the fires satellites saw in ${yearLabel()}, week by week. Watch the counter in the corner climb!` },
         { mood: "think", say: "See that band sweeping across Africa? That's the dry season moving. Farmers and grasslands burn on a calendar.",
           beat: () => { rotateTo(20, -2, 1600).then(() => { view.spin = 0.02; point(24, -9, "Africa's dry-season fires", 130); }); } },
       ] },

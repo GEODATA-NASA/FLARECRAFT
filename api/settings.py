@@ -22,7 +22,7 @@ class Settings:
     fires_csv: Path = Path(CLEANED_DATA_DIR) / "cleaned_master_fires.csv"
     fires_sample_csv: Path = Path(CLEANED_DATA_DIR) / "fires_sample.csv"
     weather_csv: Path = Path(CLEANED_DATA_DIR) / "cleaned_weather.csv"
-    csv_max_rows: int = 500_000
+    csv_max_rows: int = 1_000_000  # above the default sample size (600k rows over 2025 + 2026)
     model_path: Path = ROOT_DIR / "modeling" / "artifacts" / "high_frp_classifier.joblib"
     high_frp_threshold_mw: float = 10.0
     max_weather_distance_km: float = 100.0

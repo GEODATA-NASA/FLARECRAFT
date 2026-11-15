@@ -29,6 +29,8 @@ class Store:
         self.viirs_start = int(snpp) if snpp is not None else self.last_year + 1
         counts = cells.groupby("country").size()
         self.countries = sorted(c for c in counts.index if isinstance(c, str) and c != "?")
+        # The running year (report["partial"], from pipeline.extend): only its complete weeks are in the record.
+        self.partial = self.report.get("partial")
         self.intro_cache = None
         self.rankings_cache = None
 
@@ -76,6 +78,8 @@ class Store:
         frame = frame.set_index(["year", "week"]).reindex(full).reset_index()
         for col in self.columns:
             frame[col] = frame[col].fillna(0.0)
+        if self.partial:   # weeks of the running year that have not happened yet: unknown, not zero
+            frame.loc[(frame.year == self.partial["year"]) & (frame.week > self.partial["last_week"]), self.columns] = np.nan
         frame.loc[frame.year < self.viirs_start, ["viirs", "viirs_frp", "viirs_ind"]] = np.nan
         if "viirs_j1" in frame:
             j1_years = self.db.sql(f"SELECT DISTINCT year FROM '{self.cellweek}' WHERE viirs_j1 IS NOT NULL").df().year
