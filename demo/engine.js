@@ -119,7 +119,9 @@ const Talk = (() => {
     synth.speak(u);
     return true;
   }
-  return { say, stop() { if (playing) { playing.pause(); playing = null; } if (synth) synth.cancel(); }, get voice() { return voice ? voice.name : null; }, get clips() { return Object.keys(clips).length; } };
+  // Strict browsers (Safari, some Chrome settings) only let audio start inside a click: play every clip silently once, right then.
+  function prime() { for (const a of Object.values(clips)) { a.muted = true; const p = a.play(); if (p) p.then(() => { a.pause(); a.currentTime = 0; a.muted = false; }).catch(() => { a.muted = false; }); else a.muted = false; } }
+  return { say, prime, stop() { if (playing) { playing.pause(); playing = null; } if (synth) synth.cancel(); }, get voice() { return voice ? voice.name : null; }, get clips() { return Object.keys(clips).length; } };
 })();
 
 /* ---------------------------------------------------------------- Flick: one on stage, always. He flies in arcs, leaves sparks, talks, and holds up name cards. */

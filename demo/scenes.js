@@ -623,4 +623,4 @@ SCENES.find((x) => x.id === "air").beats.push((s) => {
   const chosen = SCENES.filter((x) => keep.includes(x.id)).map((x) => Object.assign(x, { who: "", hidden: false, then: undefined }));
   SCENES.splice(0, SCENES.length, ...chosen);
 }
-document.getElementById("start-demo").addEventListener("click", () => { document.getElementById("start-demo").remove(); Show.start(); });
+document.getElementById("start-demo").addEventListener("click", () => { Talk.prime(); document.getElementById("start-demo").remove(); Show.start(); });
