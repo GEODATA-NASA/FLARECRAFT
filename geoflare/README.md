@@ -144,4 +144,4 @@ Pipeline data paths are centralized in `pipeline/config.py`. Defaults are `../fi
 
 ## Use of AI ("SI") tools
 
-Claude (Anthropic) designed and wrote most of the pipeline, the model, the API and the front end, working from the team's direction and the challenge statement. That includes proposing the method (unit of analysis, validation protocol, uncertainty approach). Numbers in the app are computed from NASA data by the code in this repository.
+Claude (Anthropic) helped with the coding and with finding the proper tools and libraries, working from the team's direction and the challenge statement. Flick's voice is SI-generated speech (Microsoft Edge neural text-to-speech), and Ask Flick answers with an LLM (Groq) through read-only tools over our data. Numbers in the app are computed from NASA data by the code in this repository.
