@@ -64,3 +64,5 @@ logs/
 NASA.pbix
 *.pbix
 .pbi/
+# Local tool settings
+.impeccable/

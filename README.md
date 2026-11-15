@@ -1,6 +1,75 @@
-# 🌍 GeoData AI: Forest Fires & Climate Intelligence Pipeline
+<div align="center">
 
-> **GeoFlare**, the NASA Space Apps 2026 app by Team FLARECRAFT, lives in [`geoflare/`](./geoflare). It has two apps: GeoFlare Fires and GeoFlare Air. This GeoData service supplies its severity model, fire archive and assistant. To run both natively or with Docker, and for every API endpoint, see **[GEOFLARE_GUIDE.md](./GEOFLARE_GUIDE.md)**. On Windows, double-clicking `start_all_master.cmd` runs everything.
+<img src="assets/flick.png" width="110" alt="Flick, GeoFlare's mascot">
+
+# GeoFlare
+
+**One honest fire record from NASA's MODIS and VIIRS satellites, with an AI severity model and air-quality checks next to gas flares and factories.**
+
+NASA Space Apps Challenge 2026 · Harmonization of MODIS and VIIRS Hot Spots · Team FLARECRAFT, Assiut, Egypt
+
+[![Download](https://img.shields.io/badge/Download-GeoFlare__v1.0.zip-e8590c?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/GEODATA-NASA/FLARECRAFT/releases/download/v1.0/GeoFlare_v1.0.zip)
+[![Demo](https://img.shields.io/badge/Demo-7%20slides%20with%20Flick-1d1d1f?style=for-the-badge)](https://geodata-nasa.github.io/FLARECRAFT/demo/)
+
+![Python](https://img.shields.io/badge/Python-3.14-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-API-009688?logo=fastapi&logoColor=white)
+![CatBoost](https://img.shields.io/badge/CatBoost-severity%20model-FFCC00)
+![DuckDB](https://img.shields.io/badge/DuckDB-record-FFF000?logo=duckdb&logoColor=black)
+![Data](https://img.shields.io/badge/Data-NASA%20FIRMS%20%C2%B7%20NASA%20POWER-0B3D91)
+![License](https://img.shields.io/badge/License-see%20LICENSE-lightgrey)
+
+[Quick start](#-quick-start) · [Demo](https://geodata-nasa.github.io/FLARECRAFT/demo/) · [Features](#-features) · [Running guide](./GEOFLARE_GUIDE.md) · [GeoFlare method](./geoflare/README.md)
+
+<img src="assets/geoflare_demo.gif" width="800" alt="The GeoFlare demo: Flick guides the seven slides">
+
+</div>
+
+---
+
+## ⚡ Quick start
+
+### Use it (Windows 10 or 11, nothing to install)
+
+1. **Download [`GeoFlare_v1.0.zip`](https://github.com/GEODATA-NASA/FLARECRAFT/releases/download/v1.0/GeoFlare_v1.0.zip)** (629 MB) from the [Releases page](https://github.com/GEODATA-NASA/FLARECRAFT/releases) and unzip it.
+2. **Double-click `GeoFlare.exe`** (the Flick icon).
+3. **Wait about 30 seconds** while Flick loads GeoFlare, then pick what to open:
+
+   | Choice | What you get |
+   |---|---|
+   | 🔥 **GeoFlare** | Flick's story, then the Fires app (history since 2003, today's fires scored for severity) and the Air app |
+   | 🎬 **The presentation** | The guided story with Flick's voice |
+   | 🗺️ **Severity map** | Every 2026 and 2025 fire, scored by the AI model |
+
+4. **Press "Stop GeoFlare"** in Flick's window when you are done.
+
+<div align="center"><img src="assets/geoflare_launcher.gif" width="560" alt="Flick's launcher: loading, then What do you want to open?"></div>
+
+> [!TIP]
+> **Windows says "Windows protected your PC"?** Click **More info → Run anyway**, or double-click `Run GeoFlare (backup).cmd` instead.
+
+> [!NOTE]
+> The zip carries its own Python, packages, trained models and data. The history, the archives and the model work offline; live fires, air quality and map backgrounds need internet. Ask Flick (the chat) needs a free [Groq](https://console.groq.com/) key pasted into `Ask Flick key (optional).txt`. Full instructions: `HOW TO RUN.txt` inside the zip.
+
+### Just look
+
+Open the **[7-slide demo](https://geodata-nasa.github.io/FLARECRAFT/demo/)** in any browser (sound on). The same files are in [`demo/`](./demo).
+
+### Run from source
+
+```bash
+git clone https://github.com/GEODATA-NASA/FLARECRAFT.git
+cd FLARECRAFT
+start_all_master.cmd      # once: builds the environments and the data from NASA's archives (long)
+GeoFlare.exe              # every time after: the same Flick window, using this clone
+```
+
+Details, macOS/Linux and Docker: [Getting Started](#-getting-started) and [GEOFLARE_GUIDE.md](./GEOFLARE_GUIDE.md). The release zip is built with `python release/build_release.py --zip`.
+
+---
+
+## 🌍 About
+
+> **GeoFlare**, the NASA Space Apps 2026 app by Team FLARECRAFT, lives in [`geoflare/`](./geoflare). It has two apps: GeoFlare Fires and GeoFlare Air. This GeoData service supplies its severity model, fire archive and assistant. To run both natively or with Docker, and for every API endpoint, see **[GEOFLARE_GUIDE.md](./GEOFLARE_GUIDE.md)**.
 
 An end-to-end wildfire analytics platform built on open NASA data. It ingests satellite fire detections (NASA FIRMS: MODIS and VIIRS) together with daily weather (NASA POWER), cleans and stores them in PostgreSQL/PostGIS, trains a machine-learning model that estimates how **severe** a detected fire is, and serves everything through a FastAPI service, an interactive Leaflet map, and a natural-language "ask the data" assistant powered by Groq, also available as **Ask Flick** inside GeoFlare. A Power BI report presents the 2025 fires.
 
@@ -14,28 +83,10 @@ An end-to-end wildfire analytics platform built on open NASA data. It ingests sa
 
 ---
 
-## ▶️ Run it (judges, start here)
-
-**Demo (7 slides, guided by Flick, with his voice):** https://geodata-nasa.github.io/FLARECRAFT/demo/ (the same files are in [`demo/`](./demo); open `demo/index.html` in any browser, no server needed).
-
-Download **GeoFlare v1.0** (the zip on the [Releases page](https://github.com/GEODATA-NASA/FLARECRAFT/releases), or the folder on the flash drive) and on Windows 10 or 11:
-
-1. Double-click **`GeoFlare.exe`** (the Flick icon).
-2. Flick's window opens and loads GeoFlare (about 30 seconds).
-3. Flick asks **What do you want to open?**: GeoFlare (the story, Fires and Air), the presentation, or the severity map.
-4. Press **Stop GeoFlare** in Flick's window to stop.
-
-Nothing is installed: the folder carries its own Python, the packages, the trained models and the data. If Windows shows "Windows protected your PC", click **More info → Run anyway**, or use `Run GeoFlare (backup).cmd`. The presentation is at `http://127.0.0.1:8010/present/` and the classic severity map at `http://127.0.0.1:8000/`. Live fires, air quality and map backgrounds need internet; the history, the archives and the model work offline. Ask Flick needs a free Groq key pasted into `Ask Flick key (optional).txt`. Everything is in `HOW TO RUN.txt` inside the folder.
-
-**From a clone:** after the one-time setup in [Getting Started](#-getting-started) (or `start_all_master.cmd`), double-click **`GeoFlare.exe`** at the repository root: the same Flick window, using the repository's environments and data. See [GEOFLARE_GUIDE.md](./GEOFLARE_GUIDE.md#2-native-run-windows).
-
-The release folder is built from this repository with `python release/build_release.py --zip` (see [`release/`](./release)).
-
----
-
 ## 📑 Table of Contents
 
-- [Run it (judges, start here)](#️-run-it-judges-start-here)
+- [Quick start](#-quick-start)
+- [About](#-about)
 - [Features](#-features)
 - [Technology Stack](#️-technology-stack)
 - [Architecture](#-architecture)
